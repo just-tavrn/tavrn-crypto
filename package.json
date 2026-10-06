@@ -1,0 +1,11 @@
+{
+  "name": "tavrn-crypto-workspace",
+  "private": true,
+  "license": "MPL-2.0",
+  "scripts": {
+    "build": "./build-wasm.sh",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "packageManager": "pnpm@12.9.1"
+}

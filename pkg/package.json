@@ -1,0 +1,43 @@
+{
+  "name": "@tavrn/crypto",
+  "version": "0.1.0",
+  "description": "tavrn end-to-end encryption core (OpenMLS) compiled to WebAssembly",
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/just-tavrn/tavrn-crypto.git",
+    "directory": "pkg"
+  },
+  "homepage": "https://github.com/just-tavrn/tavrn-crypto#readme",
+  "keywords": [
+    "tavrn",
+    "mls",
+    "openmls",
+    "e2ee",
+    "webassembly"
+  ],
+  "type": "module",
+  "main": "./dist/tavrn_crypto.js",
+  "types": "./dist/tavrn_crypto.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/tavrn_crypto.d.ts",
+      "default": "./dist/tavrn_crypto.js"
+    },
+    "./tavrn_crypto_bg.wasm": "./dist/tavrn_crypto_bg.wasm"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "../build-wasm.sh",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.12.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

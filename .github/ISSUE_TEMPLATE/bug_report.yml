@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in tavrn-crypto or @tavrn/crypto does not work as described
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems (anything that could weaken the encryption or leak secrets) are reported privately
+        through "Report a vulnerability" on the Security tab, not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what happened instead? Error codes (`CryptoError::code`) help.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: A minimal code sample or test. Never paste real key material or state exports.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - Rust crate (native)
+        - "@tavrn/crypto in a browser"
+        - "@tavrn/crypto in Node.js"
+        - WebAssembly build
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Rust version, target, browser or Node.js version, operating system.

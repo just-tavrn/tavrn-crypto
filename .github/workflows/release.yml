@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# Release of tavrn-crypto and @tavrn/crypto (docs/GITHUB.md, README.md "Releases"). Two ways:
+# - push a tag vX.Y.Z whose commit already carries the built pkg/dist (how v0.1.0 was made, built locally):
+#   the workflow tests the committed package and attaches the .crate and the npm tarball to a GitHub release;
+# - run the workflow by hand with a version: it builds pkg/dist, commits it on top of main as the release
+#   commit, tags it vX.Y.Z, pushes the tag and attaches the tarballs.
+# Publishing to crates.io and npm is prepared as dry runs; the real publish step additionally needs the
+# repository variable PUBLISH_ENABLED and the secrets CARGO_REGISTRY_TOKEN and NPM_TOKEN.
+# Gated by CI_ENABLED. A tag pushed by this workflow (job token) does not start it again.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the v (Cargo.toml and pkg/package.json on main must already carry it)"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Release
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+      - name: Protocol submodule (test vectors)
+        env:
+          READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
+        run: |
+          if [ -n "$READ_TOKEN" ]; then
+            git -c url."https://x-access-token:${READ_TOKEN}@github.com/just-tavrn/".insteadOf="https://github.com/just-tavrn/" submodule update --init protocol
+          else
+            git submodule update --init protocol
+          fi
+      - name: Determine the version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then v="$INPUT_VERSION"; else v="${GITHUB_REF_NAME#v}"; fi
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          npm=$(node -p 'require("./pkg/package.json").version')
+          if [ "$crate" != "$v" ] || [ "$npm" != "$v" ]; then
+            echo "version mismatch: release $v, Cargo.toml $crate, pkg/package.json $npm" >&2
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Build pkg/dist (manual release only; a pushed tag carries its own build)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: ./build-wasm.sh
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: cargo test --locked
+      - name: Test the package that is released
+        run: |
+          test -f pkg/dist/tavrn_crypto_bg.wasm
+          pnpm -r typecheck
+          pnpm -r test
+      - name: Commit pkg/dist and push the tag (manual release only)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898341+github-actions[bot]@users.noreply.github.com"
+          git add -f pkg/dist
+          git diff --cached --quiet || git commit -m "release v$VERSION: built pkg/dist"
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+      - name: Package (crate and npm tarball)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cargo package --locked --allow-dirty
+          cp "${CARGO_TARGET_DIR:-target}/package/tavrn-crypto-$VERSION.crate" .
+          (cd pkg && npm pack --pack-destination ..)
+          ls -l ./*.crate ./*.tgz
+      - name: Publication dry runs
+        run: |
+          cargo publish --dry-run --locked --allow-dirty
+          cd pkg && npm publish --dry-run --access public
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "v$VERSION" --generate-notes \
+            --verify-tag ./*.crate ./*.tgz
+      - name: Publish to crates.io and npm
+        if: ${{ vars.PUBLISH_ENABLED == 'true' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cargo publish --locked --allow-dirty
+          cd pkg && npm publish --provenance --access public
