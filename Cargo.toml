@@ -21,11 +21,11 @@ crate-type = ["cdylib", "rlib"]
 openmls = "0.9"
 openmls_rust_crypto = "0.6"
 openmls_traits = "0.6"
-ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
-hkdf = "0.12"
-sha2 = "0.10"
-aes-gcm = { version = "0.10", features = ["zeroize"] }
-base64 = "0.22"
+ed25519-dalek = { version = "3", features = ["rand_core", "zeroize"] }
+hkdf = "0.13"
+sha2 = "0.11"
+aes-gcm = { version = "0.11", features = ["zeroize"] }
+base64 = "0.23"
 bip39 = { version = "3", default-features = false, features = ["std"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 zeroize = { version = "1", features = ["derive"] }
