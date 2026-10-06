@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest an improvement to the crypto core or its JavaScript bindings
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Changes to wire formats or key derivations start as a proposal in
+        [tavrn-protocol](https://github.com/just-tavrn/tavrn-protocol).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what is missing?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How could the API or the implementation look?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives

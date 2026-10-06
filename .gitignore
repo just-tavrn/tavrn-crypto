@@ -1,0 +1,41 @@
+# Rust (build output goes to target/ or $CARGO_TARGET_DIR)
+/target
+target/
+**/*.rs.bk
+
+# Node
+node_modules/
+*.tsbuildinfo
+*.tgz
+# pkg/dist (the built WebAssembly package) is committed on purpose while the packages are consumed as git
+# dependencies; see README.md ("Releases").
+
+# Local data and secrets: never part of the repository
+/data
+data/
+data-dev/
+pgdata/
+*.db
+*.sqlite
+.env
+!.env.example
+*.pem
+*.key
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Agent settings, memory files and planning notes: never part of the repository
+.claude/
+CLAUDE.md
+docs/PLAN.md
+
+# Test output
+test-results/
+playwright-report/
+coverage/
+
+# Private pattern list of the pre-publication check
+.publish-check.private

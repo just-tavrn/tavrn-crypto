@@ -1,0 +1,3 @@
+# Built WebAssembly package (committed while consumed as a git dependency; README.md "Releases")
+pkg/dist/** linguist-generated=true
+*.wasm binary

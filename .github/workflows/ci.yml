@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# Uses the organization's reusable workflows (just-tavrn/.github). Every job is gated by the repository
+# variable CI_ENABLED (docs/GITHUB.md): nothing runs until the owner sets it to "true".
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    uses: just-tavrn/.github/.github/workflows/rust-ci.yml@main
+    with:
+      # rustfmt, clippy (native), clippy (wasm32: the bindings in src/wasm.rs), tests incl. the protocol
+      # test vectors (submodule protocol/), cargo deny with deny.toml.
+      extra-targets: wasm32-unknown-unknown
+      clippy-args: --all-targets --locked
+      extra-clippy: |
+        --lib --target wasm32-unknown-unknown --locked
+      test-args: --locked
+    secrets:
+      # The protocol submodule is private until the repositories go public.
+      READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
+
+  wasm:
+    name: WebAssembly package
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    uses: just-tavrn/.github/.github/workflows/js-ci.yml@main
+    with:
+      # Builds a fresh pkg/dist, then SPDX and JS license checks, typecheck and Vitest run against it,
+      # followed by the publication dry runs of the crate and the npm tarball.
+      rust-wasm: true
+      pre-test: ./build-wasm.sh
+      typecheck: pnpm -r typecheck
+      test: pnpm -r test
+      build: |
+        cargo publish --dry-run --locked --allow-dirty
+        cd pkg && npm pack --dry-run
+    secrets:
+      READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
