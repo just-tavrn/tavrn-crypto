@@ -32,6 +32,11 @@ unused-allowed-license = "allow"
 
 [advisories]
 yanked = "deny"
+ignore = [
+    # proc-macro-error2 is unmaintained: a build-time macro crate via openmls_rust_crypto -> hpke-rs -> libcrux,
+    # not part of the runtime code. Accepted until OpenMLS moves (same entry as in tavrn-node).
+    { id = "RUSTSEC-2026-0173", reason = "unmaintained build-time macro crate deep in the OpenMLS stack" },
+]
 
 [bans]
 multiple-versions = "warn"
