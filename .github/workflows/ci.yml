@@ -23,6 +23,7 @@ jobs:
     if: ${{ vars.CI_ENABLED == 'true' }}
     uses: just-tavrn/.github/.github/workflows/rust-ci.yml@main
     with:
+      runner: tavrn-heavy
       # rustfmt, clippy (native), clippy (wasm32: the bindings in src/wasm.rs), tests incl. the protocol
       # test vectors (submodule protocol/), cargo deny with deny.toml.
       extra-targets: wasm32-unknown-unknown
@@ -39,6 +40,7 @@ jobs:
     if: ${{ vars.CI_ENABLED == 'true' }}
     uses: just-tavrn/.github/.github/workflows/js-ci.yml@main
     with:
+      runner: tavrn-heavy
       # Builds a fresh pkg/dist, then SPDX and JS license checks, typecheck and Vitest run against it,
       # followed by the publication dry runs of the crate and the npm tarball.
       rust-wasm: true
