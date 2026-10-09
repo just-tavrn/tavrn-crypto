@@ -27,6 +27,7 @@ use crate::error::{CryptoError, Result, mls};
 use crate::keys::BackupKey;
 use crate::util::{
     Reader, check_conversation, check_device_id, check_user_address, parse_device_identity, put_bytes32, put_str16,
+    random_array,
 };
 
 /// The only ciphersuite tavrn v1 uses (`e2ee.mls1`).
@@ -670,6 +671,21 @@ impl Client {
             }
         };
         content::open(key, conversation, author, device_id, &device_key, &header, &ciphertext)
+    }
+
+    /// A history share v2 (`ENCRYPTION.md` §7b): encrypts and signs `json` like content of the current epoch, but
+    /// under a fresh random key, which the caller seals to every recipient device
+    /// ([`crate::share::seal_share_key`]). Returns the base64url content and the key.
+    pub fn encrypt_share(&self, conversation: &str, json: &str) -> Result<(String, Zeroizing<[u8; 32]>)> {
+        let group = self.load_ready(conversation)?;
+        let key = Zeroizing::new(random_array::<32>()?);
+        let content = content::seal(&key, conversation, group.epoch().as_u64(), &self.device, json)?;
+        Ok((content, key))
+    }
+
+    /// Opens a sealed share key addressed to this device (its share key, `ENCRYPTION.md` §3.1).
+    pub fn open_share_box(&self, sealed: &[u8]) -> Result<Zeroizing<[u8; 32]>> {
+        crate::share::open_share_box(&self.device.share_secret(), sealed)
     }
 
     // ---- Epoch keys and backup ----------------------------------------------------------------
