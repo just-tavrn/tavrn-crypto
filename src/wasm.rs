@@ -427,12 +427,13 @@ pub struct ShareKey {
     pub signature: Vec<u8>,
 }
 
-/// A history share v2: the content and its fresh key (seal the key to each recipient device, then zero it).
+/// A history share v2: the content and the share key sealed to each recipient device, in the order of the share keys
+/// passed to `Client.encryptShare` (the key itself never leaves the WebAssembly module).
 #[wasm_bindgen(getter_with_clone)]
 pub struct EncryptedShare {
     pub content: String,
-    pub key: Vec<u8>,
     pub epoch: f64,
+    pub boxes: Vec<Uint8Array>,
 }
 
 /// A published inbox key: `PUT /conversations/{id}/inbox-key` (ENCRYPTION.md §5b).
@@ -776,12 +777,30 @@ impl Client {
     }
 
     /// A history share v2 (ENCRYPTION.md §7b): `json` encrypted and signed like content of the current epoch under a
-    /// fresh key.
+    /// fresh key, which is sealed to each of `share_public_keys` (verified share keys of the recipient's devices) and
+    /// then zeroed.
     #[wasm_bindgen(js_name = encryptShare)]
-    pub fn encrypt_share(&self, conversation: &str, json: &str) -> JsResult<EncryptedShare> {
+    pub fn encrypt_share(
+        &self,
+        conversation: &str,
+        json: &str,
+        share_public_keys: Vec<Uint8Array>,
+    ) -> JsResult<EncryptedShare> {
+        let recipients = share_public_keys
+            .iter()
+            .map(|k| arr::<32>(&k.to_vec(), "share public key"))
+            .collect::<JsResult<Vec<[u8; 32]>>>()?;
+        if recipients.is_empty() {
+            return Err(js_err(CryptoError::InvalidInput("no recipient devices")));
+        }
         let (content, key) = self.0.encrypt_share(conversation, json).map_err(js_err)?;
         let epoch = content::content_header(&content).map_err(js_err)?.epoch;
-        Ok(EncryptedShare { content, key: key.to_vec(), epoch: epoch_to_js(epoch)? })
+        let boxes = recipients
+            .iter()
+            .map(|pk| share::seal_share_key(pk, &key).map(|b| Uint8Array::from(b.as_slice())))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(js_err)?;
+        Ok(EncryptedShare { content, epoch: epoch_to_js(epoch)?, boxes })
     }
 
     /// Opens a sealed share key addressed to this device; returns the 32-byte key (`decryption_failed` otherwise).

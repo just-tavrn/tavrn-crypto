@@ -32,9 +32,10 @@ export class Client {
     encryptContent(conversation: string, json: string): string;
     /**
      * A history share v2 (ENCRYPTION.md §7b): `json` encrypted and signed like content of the current epoch under a
-     * fresh key.
+     * fresh key, which is sealed to each of `share_public_keys` (verified share keys of the recipient's devices) and
+     * then zeroed.
      */
-    encryptShare(conversation: string, json: string): EncryptedShare;
+    encryptShare(conversation: string, json: string, share_public_keys: Uint8Array[]): EncryptedShare;
     /**
      * Encrypted history backup of one conversation (upload to the home node).
      */
@@ -132,15 +133,16 @@ export class EncryptedFile {
 }
 
 /**
- * A history share v2: the content and its fresh key (seal the key to each recipient device, then zero it).
+ * A history share v2: the content and the share key sealed to each recipient device, in the order of the share keys
+ * passed to `Client.encryptShare` (the key itself never leaves the WebAssembly module).
  */
 export class EncryptedShare {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
+    boxes: Uint8Array[];
     content: string;
     epoch: number;
-    key: Uint8Array;
 }
 
 /**
@@ -509,9 +511,9 @@ export interface InitOutput {
     readonly __wbg_get_encryptedfile_key: (a: number, b: number) => void;
     readonly __wbg_get_encryptedfile_nonce: (a: number, b: number) => void;
     readonly __wbg_get_encryptedfile_sha256: (a: number, b: number) => void;
+    readonly __wbg_get_encryptedshare_boxes: (a: number, b: number) => void;
     readonly __wbg_get_encryptedshare_content: (a: number, b: number) => void;
     readonly __wbg_get_encryptedshare_epoch: (a: number) => number;
-    readonly __wbg_get_encryptedshare_key: (a: number, b: number) => void;
     readonly __wbg_get_handshakeoutcome_added: (a: number, b: number) => void;
     readonly __wbg_get_handshakeoutcome_committer: (a: number, b: number) => void;
     readonly __wbg_get_handshakeoutcome_discardedPendingCommit: (a: number) => number;
@@ -545,9 +547,9 @@ export interface InitOutput {
     readonly __wbg_set_encryptedfile_key: (a: number, b: number, c: number) => void;
     readonly __wbg_set_encryptedfile_nonce: (a: number, b: number, c: number) => void;
     readonly __wbg_set_encryptedfile_sha256: (a: number, b: number, c: number) => void;
+    readonly __wbg_set_encryptedshare_boxes: (a: number, b: number, c: number) => void;
     readonly __wbg_set_encryptedshare_content: (a: number, b: number, c: number) => void;
     readonly __wbg_set_encryptedshare_epoch: (a: number, b: number) => void;
-    readonly __wbg_set_encryptedshare_key: (a: number, b: number, c: number) => void;
     readonly __wbg_set_handshakeoutcome_added: (a: number, b: number, c: number) => void;
     readonly __wbg_set_handshakeoutcome_committer: (a: number, b: number, c: number) => void;
     readonly __wbg_set_handshakeoutcome_discardedPendingCommit: (a: number, b: number) => void;
@@ -583,7 +585,7 @@ export interface InitOutput {
     readonly client_devicePublicKey: (a: number, b: number) => void;
     readonly client_discardPendingCommit: (a: number, b: number, c: number, d: number) => void;
     readonly client_encryptContent: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
-    readonly client_encryptShare: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly client_encryptShare: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
     readonly client_exportBackup: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly client_exportEpochKey: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly client_exportState: (a: number, b: number) => void;

@@ -288,19 +288,23 @@ export class Client {
     }
     /**
      * A history share v2 (ENCRYPTION.md §7b): `json` encrypted and signed like content of the current epoch under a
-     * fresh key.
+     * fresh key, which is sealed to each of `share_public_keys` (verified share keys of the recipient's devices) and
+     * then zeroed.
      * @param {string} conversation
      * @param {string} json
+     * @param {Uint8Array[]} share_public_keys
      * @returns {EncryptedShare}
      */
-    encryptShare(conversation, json) {
+    encryptShare(conversation, json, share_public_keys) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passStringToWasm0(conversation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
             const ptr1 = passStringToWasm0(json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len1 = WASM_VECTOR_LEN;
-            wasm.client_encryptShare(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1);
+            const ptr2 = passArrayJsValueToWasm0(share_public_keys, wasm.__wbindgen_export);
+            const len2 = WASM_VECTOR_LEN;
+            wasm.client_encryptShare(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -1103,7 +1107,8 @@ export class EncryptedFile {
 if (Symbol.dispose) EncryptedFile.prototype[Symbol.dispose] = EncryptedFile.prototype.free;
 
 /**
- * A history share v2: the content and its fresh key (seal the key to each recipient device, then zero it).
+ * A history share v2: the content and the share key sealed to each recipient device, in the order of the share keys
+ * passed to `Client.encryptShare` (the key itself never leaves the WebAssembly module).
  */
 export class EncryptedShare {
     static __wrap(ptr) {
@@ -1121,6 +1126,22 @@ export class EncryptedShare {
     free() {
         const ptr = this.__destroy_into_raw();
         wasm.__wbg_encryptedshare_free(ptr, 0);
+    }
+    /**
+     * @returns {Uint8Array[]}
+     */
+    get boxes() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.__wbg_get_encryptedshare_boxes(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayJsValueFromWasm0(r0, r1);
+            wasm.__wbindgen_export4(r0, r1 * 4, 4);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
     }
     /**
      * @returns {string}
@@ -1149,20 +1170,12 @@ export class EncryptedShare {
         return ret;
     }
     /**
-     * @returns {Uint8Array}
+     * @param {Uint8Array[]} arg0
      */
-    get key() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.__wbg_get_encryptedshare_key(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
+    set boxes(arg0) {
+        const ptr0 = passArrayJsValueToWasm0(arg0, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.__wbg_set_encryptedshare_boxes(this.__wbg_ptr, ptr0, len0);
     }
     /**
      * @param {string} arg0
@@ -1177,14 +1190,6 @@ export class EncryptedShare {
      */
     set epoch(arg0) {
         wasm.__wbg_set_encryptedshare_epoch(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @param {Uint8Array} arg0
-     */
-    set key(arg0) {
-        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_encryptedshare_key(this.__wbg_ptr, ptr0, len0);
     }
 }
 if (Symbol.dispose) EncryptedShare.prototype[Symbol.dispose] = EncryptedShare.prototype.free;
@@ -3236,6 +3241,10 @@ function __wbg_get_imports() {
         },
         __wbg_new_343a093a3c2ffb4e: function(arg0, arg1) {
             const ret = new Error(getStringFromWasm0(arg0, arg1));
+            return addHeapObject(ret);
+        },
+        __wbg_new_from_slice_9a868026ffa4208a: function(arg0, arg1) {
+            const ret = new Uint8Array(getArrayU8FromWasm0(arg0, arg1));
             return addHeapObject(ret);
         },
         __wbg_new_with_length_3da0ad195f6f63ba: function(arg0) {
