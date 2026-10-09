@@ -9,6 +9,11 @@ import {
   MasterSecret,
   RecoveryKey,
   canonicalJson,
+  decryptContentWithKey,
+  deviceShareSecretKey,
+  openShareBox,
+  sharePublicKey,
+  verifyDeviceShareKey,
   decryptFile,
   decryptScene,
   encryptScene,
@@ -132,5 +137,29 @@ describe("encryption.json through the WebAssembly package", () => {
     expect(opener.openSealed("app.invalid/00000000000000000000000000", 0, b(u.sealed))).toBe(u.payload);
     expect(JSON.parse(u.payload)).toMatchObject({ type: "tavrn.connect.unlock.v1", prf_output: V.secret_storage.prf_output });
     opener.free();
+  });
+
+  it("device share key and history share v2", () => {
+    const k = V.device_share_key;
+    const secret = deviceShareSecretKey(b(k.device_secret_key));
+    expect(s64(secret)).toBe(k.share_secret_key);
+    expect(s64(sharePublicKey(secret))).toBe(k.share_public_key);
+    expect(Buffer.from(b(k.message)).subarray(0, 26).toString("latin1")).toBe("tavrn device share key v1\0");
+    expect(verifyDeviceShareKey(k.device_id, deviceKey, b(k.share_public_key), b(k.signature))).toBe(true);
+    expect(verifyDeviceShareKey("01J9ZK3G5M8Q2W4E6R8T0Y2VA2", deviceKey, b(k.share_public_key), b(k.signature))).toBe(false);
+    // The node and clients check exactly this signature (Ed25519 over the message).
+    const spki = Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(deviceKey)]);
+    expect(verify(null, b(k.message), createPublicKey({ key: spki, format: "der", type: "spki" }), b(k.signature))).toBe(true);
+
+    const v = V.history_share_v2;
+    const bobSecret = deviceShareSecretKey(b(v.recipient_device_secret_key));
+    expect(s64(bobSecret)).toBe(v.recipient_share_secret_key);
+    expect(s64(sharePublicKey(bobSecret))).toBe(v.recipient_share_public_key);
+    const key = openShareBox(bobSecret, b(v.box));
+    expect(s64(key)).toBe(v.share_key);
+    expect(decryptContentWithKey(key, v.conversation, v.author, v.device_id, v.ciphertext, deviceKey)).toBe(v.payload);
+    expect(() => openShareBox(secret, b(v.box))).toThrow();
+    expect(canonicalJson(v.payload)).toBe(v.payload);
+    expect(JSON.parse(v.payload)).toMatchObject({ type: "history_keys", v: 2, to: v.to, conversation: v.conversation });
   });
 });

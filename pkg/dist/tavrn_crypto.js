@@ -287,6 +287,32 @@ export class Client {
         }
     }
     /**
+     * A history share v2 (ENCRYPTION.md §7b): `json` encrypted and signed like content of the current epoch under a
+     * fresh key.
+     * @param {string} conversation
+     * @param {string} json
+     * @returns {EncryptedShare}
+     */
+    encryptShare(conversation, json) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(conversation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passStringToWasm0(json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len1 = WASM_VECTOR_LEN;
+            wasm.client_encryptShare(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return EncryptedShare.__wrap(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Encrypted history backup of one conversation (upload to the home node).
      * @param {string} conversation
      * @param {Uint8Array} backup_key
@@ -639,6 +665,31 @@ export class Client {
         }
     }
     /**
+     * Opens a sealed share key addressed to this device; returns the 32-byte key (`decryption_failed` otherwise).
+     * @param {Uint8Array} sealed
+     * @returns {Uint8Array}
+     */
+    openShareBox(sealed) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passArray8ToWasm0(sealed, wasm.__wbindgen_export);
+            const len0 = WASM_VECTOR_LEN;
+            wasm.client_openShareBox(retptr, this.__wbg_ptr, ptr0, len0);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+            if (r3) {
+                throw takeObject(r2);
+            }
+            var v2 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export4(r0, r1 * 1, 1);
+            return v2;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * @param {string} conversation
      * @param {Uint8Array} message
      * @returns {HandshakeOutcome}
@@ -730,6 +781,14 @@ export class Client {
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
+    }
+    /**
+     * This device's share key and the device signature over it (ENCRYPTION.md §3.1).
+     * @returns {ShareKey}
+     */
+    shareKey() {
+        const ret = wasm.client_shareKey(this.__wbg_ptr);
+        return ShareKey.__wrap(ret);
     }
     /**
      * Device login proof over the node's login nonce (ENCRYPTION.md §3.4), 64 bytes.
@@ -1042,6 +1101,93 @@ export class EncryptedFile {
     }
 }
 if (Symbol.dispose) EncryptedFile.prototype[Symbol.dispose] = EncryptedFile.prototype.free;
+
+/**
+ * A history share v2: the content and its fresh key (seal the key to each recipient device, then zero it).
+ */
+export class EncryptedShare {
+    static __wrap(ptr) {
+        const obj = Object.create(EncryptedShare.prototype);
+        obj.__wbg_ptr = ptr;
+        EncryptedShareFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        EncryptedShareFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_encryptedshare_free(ptr, 0);
+    }
+    /**
+     * @returns {string}
+     */
+    get content() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.__wbg_get_encryptedshare_content(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export4(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    get epoch() {
+        const ret = wasm.__wbg_get_encryptedshare_epoch(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get key() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.__wbg_get_encryptedshare_key(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export4(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {string} arg0
+     */
+    set content(arg0) {
+        const ptr0 = passStringToWasm0(arg0, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.__wbg_set_encryptedshare_content(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @param {number} arg0
+     */
+    set epoch(arg0) {
+        wasm.__wbg_set_encryptedshare_epoch(this.__wbg_ptr, arg0);
+    }
+    /**
+     * @param {Uint8Array} arg0
+     */
+    set key(arg0) {
+        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.__wbg_set_encryptedshare_key(this.__wbg_ptr, ptr0, len0);
+    }
+}
+if (Symbol.dispose) EncryptedShare.prototype[Symbol.dispose] = EncryptedShare.prototype.free;
 
 /**
  * Result of processing a commit; see [`mls::HandshakeOutcome`].
@@ -1862,6 +2008,77 @@ export class RosterEntry {
 if (Symbol.dispose) RosterEntry.prototype[Symbol.dispose] = RosterEntry.prototype.free;
 
 /**
+ * A device's share key with the device signature over it (`PUT /users/me/devices/{id}/share-key`).
+ */
+export class ShareKey {
+    static __wrap(ptr) {
+        const obj = Object.create(ShareKey.prototype);
+        obj.__wbg_ptr = ptr;
+        ShareKeyFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        ShareKeyFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_sharekey_free(ptr, 0);
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get publicKey() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.__wbg_get_sharekey_publicKey(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export4(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get signature() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.__wbg_get_sharekey_signature(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU8FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export4(r0, r1 * 1, 1);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * @param {Uint8Array} arg0
+     */
+    set publicKey(arg0) {
+        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.__wbg_set_sharekey_publicKey(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @param {Uint8Array} arg0
+     */
+    set signature(arg0) {
+        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.__wbg_set_sharekey_signature(this.__wbg_ptr, ptr0, len0);
+    }
+}
+if (Symbol.dispose) ShareKey.prototype[Symbol.dispose] = ShareKey.prototype.free;
+
+/**
  * A parsed QR payload; keys are base64url.
  */
 export class VerifyPayload {
@@ -2150,6 +2367,54 @@ export function continuityReaches(chain_json, from, to) {
 }
 
 /**
+ * Decrypts content format 1 under an explicit key (a history share v2 under the key from its box) and verifies the
+ * device signature; nothing is stored.
+ * @param {Uint8Array} key
+ * @param {string} conversation
+ * @param {string} author
+ * @param {string} device_id
+ * @param {string} content
+ * @param {Uint8Array} device_public_key
+ * @returns {string}
+ */
+export function decryptContentWithKey(key, conversation, author, device_id, content, device_public_key) {
+    let deferred8_0;
+    let deferred8_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArray8ToWasm0(key, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(conversation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(author, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(device_id, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len3 = WASM_VECTOR_LEN;
+        const ptr4 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len4 = WASM_VECTOR_LEN;
+        const ptr5 = passArray8ToWasm0(device_public_key, wasm.__wbindgen_export);
+        const len5 = WASM_VECTOR_LEN;
+        wasm.decryptContentWithKey(retptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+        var ptr7 = r0;
+        var len7 = r1;
+        if (r3) {
+            ptr7 = 0; len7 = 0;
+            throw takeObject(r2);
+        }
+        deferred8_0 = ptr7;
+        deferred8_1 = len7;
+        return getStringFromWasm0(ptr7, len7);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export4(deferred8_0, deferred8_1, 1);
+    }
+}
+
+/**
  * Checks the ciphertext hash and decrypts an attachment.
  * @param {Uint8Array} ciphertext
  * @param {Uint8Array} key
@@ -2214,6 +2479,33 @@ export function decryptScene(backup_key, scene_id, part, blob) {
         var v5 = getArrayU8FromWasm0(r0, r1).slice();
         wasm.__wbindgen_export4(r0, r1 * 1, 1);
         return v5;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * The share secret key a device derives from its device secret (ENCRYPTION.md §3.1; test vectors and tools, clients
+ * use `Client.shareKey` and `Client.openShareBox`).
+ * @param {Uint8Array} device_secret_key
+ * @returns {Uint8Array}
+ */
+export function deviceShareSecretKey(device_secret_key) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArray8ToWasm0(device_secret_key, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.deviceShareSecretKey(retptr, ptr0, len0);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+        if (r3) {
+            throw takeObject(r2);
+        }
+        var v2 = getArrayU8FromWasm0(r0, r1).slice();
+        wasm.__wbindgen_export4(r0, r1 * 1, 1);
+        return v2;
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
     }
@@ -2300,6 +2592,35 @@ export function inboxPublicKey(content_key) {
         var v2 = getArrayU8FromWasm0(r0, r1).slice();
         wasm.__wbindgen_export4(r0, r1 * 1, 1);
         return v2;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * Opens a sealed share key with a raw share secret key (test vectors and tools; clients use `Client.openShareBox`).
+ * @param {Uint8Array} share_secret_key
+ * @param {Uint8Array} sealed
+ * @returns {Uint8Array}
+ */
+export function openShareBox(share_secret_key, sealed) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArray8ToWasm0(share_secret_key, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(sealed, wasm.__wbindgen_export);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.openShareBox(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+        if (r3) {
+            throw takeObject(r2);
+        }
+        var v3 = getArrayU8FromWasm0(r0, r1).slice();
+        wasm.__wbindgen_export4(r0, r1 * 1, 1);
+        return v3;
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
     }
@@ -2428,6 +2749,35 @@ export function safetyNumber(address_a, key_a, address_b, key_b) {
 }
 
 /**
+ * Seals the fresh key of a history share v2 to one recipient device's share public key (ENCRYPTION.md §7b).
+ * @param {Uint8Array} share_public_key
+ * @param {Uint8Array} key
+ * @returns {Uint8Array}
+ */
+export function sealShareKey(share_public_key, key) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArray8ToWasm0(share_public_key, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(key, wasm.__wbindgen_export);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.sealShareKey(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+        if (r3) {
+            throw takeObject(r2);
+        }
+        var v3 = getArrayU8FromWasm0(r0, r1).slice();
+        wasm.__wbindgen_export4(r0, r1 * 1, 1);
+        return v3;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
  * libsodium `crypto_box_seal` to an inbox public key: what a webhook sender does (ENCRYPTION.md §5b).
  * @param {Uint8Array} public_key
  * @param {Uint8Array} plaintext
@@ -2469,6 +2819,32 @@ export function secretStoragePrfInput() {
         var v1 = getArrayU8FromWasm0(r0, r1).slice();
         wasm.__wbindgen_export4(r0, r1 * 1, 1);
         return v1;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
+ * The X25519 public key of a share secret key.
+ * @param {Uint8Array} share_secret_key
+ * @returns {Uint8Array}
+ */
+export function sharePublicKey(share_secret_key) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passArray8ToWasm0(share_secret_key, wasm.__wbindgen_export);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.sharePublicKey(retptr, ptr0, len0);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
+        if (r3) {
+            throw takeObject(r2);
+        }
+        var v2 = getArrayU8FromWasm0(r0, r1).slice();
+        wasm.__wbindgen_export4(r0, r1 * 1, 1);
+        return v2;
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
     }
@@ -2605,6 +2981,39 @@ export function verifyDeviceAttestation(user_address, device_id, device_public_k
     const len4 = WASM_VECTOR_LEN;
     const ret = wasm.verifyDeviceAttestation(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
     return ret !== 0;
+}
+
+/**
+ * Checks a device's published share key against its (verified) device key (ENCRYPTION.md §3.1): clients seal
+ * nothing to a share key whose signature does not verify.
+ * @param {string} device_id
+ * @param {Uint8Array} device_public_key
+ * @param {Uint8Array} share_public_key
+ * @param {Uint8Array} signature
+ * @returns {boolean}
+ */
+export function verifyDeviceShareKey(device_id, device_public_key, share_public_key, signature) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(device_id, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(device_public_key, wasm.__wbindgen_export);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(share_public_key, wasm.__wbindgen_export);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passArray8ToWasm0(signature, wasm.__wbindgen_export);
+        const len3 = WASM_VECTOR_LEN;
+        wasm.verifyDeviceShareKey(retptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+        if (r2) {
+            throw takeObject(r1);
+        }
+        return r0 !== 0;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
 }
 
 /**
@@ -2919,6 +3328,9 @@ const CommitOutputFinalization = (typeof FinalizationRegistry === 'undefined')
 const EncryptedFileFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_encryptedfile_free(ptr, 1));
+const EncryptedShareFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_encryptedshare_free(ptr, 1));
 const HandshakeOutcomeFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_handshakeoutcome_free(ptr, 1));
@@ -2937,6 +3349,9 @@ const RecoveryKeyFinalization = (typeof FinalizationRegistry === 'undefined')
 const RosterEntryFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_rosterentry_free(ptr, 1));
+const ShareKeyFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_sharekey_free(ptr, 1));
 const VerifyPayloadFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_verifypayload_free(ptr, 1));
