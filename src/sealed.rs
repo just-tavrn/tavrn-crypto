@@ -7,7 +7,7 @@
 //! (`crypto_box_seal`: X25519 + XSalsa20-Poly1305 with an ephemeral sender key) to that public key, so any
 //! libsodium binding can seal and every reader of the epoch can open it, while the node and the sender cannot.
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, VerifyingKey};
 use hkdf::Hkdf;
 use rand_core::{CryptoRng, OsRng, RngCore};
 use sha2::Sha256;
@@ -62,7 +62,12 @@ pub fn verify_inbox_key(
 ) -> Result<()> {
     let key = VerifyingKey::from_bytes(device_key).map_err(|_| CryptoError::InvalidInput("device key"))?;
     let signature = Signature::from_slice(signature).map_err(|_| CryptoError::BadSignature)?;
-    key.verify(&inbox_signing_input(conversation, epoch, public_key), &signature).map_err(|_| CryptoError::BadSignature)
+    if key.is_weak() {
+        return Err(CryptoError::BadSignature);
+    }
+    // Strict verification, as everywhere in the protocol (ENCRYPTION.md §0).
+    key.verify_strict(&inbox_signing_input(conversation, epoch, public_key), &signature)
+        .map_err(|_| CryptoError::BadSignature)
 }
 
 /// `crypto_box_seal(plaintext, public_key)`: what a webhook sender (or the node in `node` mode) does.
@@ -147,6 +152,19 @@ mod tests {
         )
         .expect("b64");
         assert_eq!(open(&content_key, &sealed).expect("open").as_slice(), b"hello from libsodium");
+    }
+
+    #[test]
+    fn inbox_key_signatures_are_verified_strictly() {
+        // ENCRYPTION.md §0: strict verification. With a small-order public key (here the identity point) the
+        // signature R = identity, s = 0 satisfies the cofactorless equation for every message; only strict
+        // verification refuses it.
+        let mut weak = [0u8; 32];
+        weak[0] = 1;
+        let mut sig = [0u8; 64];
+        sig[0] = 1;
+        let conversation = "node.example/01J9ZK3G5M8Q2W4E6R8T0Y2V4X";
+        assert_eq!(verify_inbox_key(&weak, conversation, 1, &[2u8; 32], &sig), Err(CryptoError::BadSignature));
     }
 
     #[test]
