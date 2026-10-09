@@ -7,6 +7,12 @@ updates:
     groups:
       rust:
         patterns: ["*"]
+    ignore:
+      # Held back until openmls_rust_crypto moves (reason in Cargo.toml).
+      - dependency-name: ed25519-dalek
+        update-types: ["version-update:semver-major"]
+      - dependency-name: aes-gcm
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: npm
     directory: /
     schedule: { interval: weekly }

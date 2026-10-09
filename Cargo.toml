@@ -21,6 +21,8 @@ crate-type = ["cdylib", "rlib"]
 openmls = "0.9"
 openmls_rust_crypto = "0.6"
 openmls_traits = "0.6"
+# ed25519-dalek and aes-gcm stay on the versions openmls_rust_crypto 0.6 uses (2 and 0.10): newer majors compile a
+# second Ed25519 and AES-GCM implementation into the WebAssembly package. Move them with the MLS provider.
 ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
 hkdf = "0.13"
 sha2 = "0.11"
