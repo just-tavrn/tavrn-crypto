@@ -11,6 +11,7 @@
 //! - [`verify`]: safety numbers and the QR payload of identity verification (FEDERATION.md §10.1).
 //! - [`plaintext`]: device signatures on plaintext messages (FEDERATION.md §10.3).
 //! - [`sealed`]: inbox keys and sealed boxes of write-only webhooks in encrypted channels (ENCRYPTION.md §5b).
+//! - [`share`]: device share keys and the sealed keys of history shares v2 (ENCRYPTION.md §3.1, §7b).
 //!
 //! The crate is used natively (tests, bots, Tauri, the node) and through `wasm-bindgen` in the
 //! browser (`wasm` module, only compiled for `wasm32`).
@@ -30,6 +31,7 @@ pub mod plaintext;
 pub mod scene;
 pub mod sealed;
 pub mod secret_storage;
+pub mod share;
 pub mod util;
 #[cfg(test)]
 mod vectors;

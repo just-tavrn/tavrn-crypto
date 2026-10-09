@@ -10,6 +10,7 @@ import {
   canonicalJson,
   capability,
   contentEpoch,
+  decryptContentWithKey,
   decryptFile,
   decryptScene,
   encryptFile,
@@ -19,9 +20,11 @@ import {
   parseVerifyPayload,
   passkeyWrappingKey,
   safetyNumber,
+  sealShareKey,
   secretStoragePrfInput,
   unwrapMasterSecret,
   verifyDeviceAttestation,
+  verifyDeviceShareKey,
   verifyPayload,
   verifyPayloadMatches,
   verifyPlaintext,
@@ -164,6 +167,36 @@ describe("@tavrn/crypto (wasm)", () => {
     const c5 = alice.encryptContent(CONV, MSG);
     expect(carol.decryptContent(CONV, ALICE, DEV_A, c5)).toBe(MSG);
     expect(errorName(() => bob.decryptContent(CONV, ALICE, DEV_A, c5))).toBe("unknown_epoch");
+  });
+
+  it("publishes a share key per device and seals history shares v2 to it", () => {
+    const alice = Client.create(ALICE, DEV_A);
+    const bob = Client.create(BOB, DEV_B);
+    const carol = Client.create(CAROL, DEV_C);
+    alice.createGroup(CONV);
+    const sk = bob.shareKey();
+    expect(sk.publicKey).toHaveLength(32);
+    expect(sk.signature).toHaveLength(64);
+    expect(verifyDeviceShareKey(DEV_B, bob.devicePublicKey, sk.publicKey, sk.signature)).toBe(true);
+    expect(verifyDeviceShareKey(DEV_B, carol.devicePublicKey, sk.publicKey, sk.signature)).toBe(false);
+    expect(Buffer.from(Client.create(BOB, DEV_B).shareKey().publicKey)).not.toEqual(Buffer.from(sk.publicKey));
+    const payload = JSON.stringify({ type: "history_keys", v: 2 });
+    const share = alice.encryptShare(CONV, payload, [sk.publicKey, carol.shareKey().publicKey]);
+    expect(share.epoch).toBe(0);
+    expect(contentEpoch(share.content)).toBe(0);
+    expect(share.boxes).toHaveLength(2);
+    expect(share.boxes[0]).toHaveLength(80);
+    const box = share.boxes[0]!;
+    const key = bob.openShareBox(box);
+    expect(key).toHaveLength(32);
+    expect(decryptContentWithKey(key, CONV, ALICE, DEV_A, share.content, alice.devicePublicKey)).toBe(payload);
+    expect(decryptContentWithKey(carol.openShareBox(share.boxes[1]!), CONV, ALICE, DEV_A, share.content, alice.devicePublicKey)).toBe(payload);
+    expect(sealShareKey(sk.publicKey, key)).toHaveLength(80);
+    expect(errorName(() => alice.encryptShare(CONV, payload, []))).toBe("invalid_input");
+    expect(errorName(() => carol.openShareBox(box))).toBe("decryption_failed");
+    expect(errorName(() => Client.create(BOB, DEV_B).openShareBox(box))).toBe("decryption_failed");
+    expect(errorName(() => decryptContentWithKey(new Uint8Array(32), CONV, ALICE, DEV_A, share.content, alice.devicePublicKey))).toBe("decryption_failed");
+    for (const c of [alice, bob, carol]) c.free();
   });
 
   it("encrypts attachments", () => {
