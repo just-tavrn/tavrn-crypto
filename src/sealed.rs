@@ -87,11 +87,18 @@ pub(crate) fn seal_with_rng(
 
 /// `crypto_box_seal_open` with the inbox key of the epoch whose content key is `content_key`.
 pub fn open(content_key: &[u8; 32], sealed: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+    open_with_secret(&inbox_secret(content_key), sealed)
+}
+
+/// `crypto_box_seal_open` with an explicit X25519 secret key (a device share key, ENCRYPTION.md §7b).
+pub fn open_with_secret(secret: &[u8; 32], sealed: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     if sealed.len() < SEAL_OVERHEAD {
         return Err(CryptoError::DecryptionFailed);
     }
-    let secret = crypto_box::SecretKey::from_bytes(*inbox_secret(content_key));
-    secret.unseal(sealed).map(Zeroizing::new).map_err(|_| CryptoError::DecryptionFailed)
+    crypto_box::SecretKey::from_bytes(*secret)
+        .unseal(sealed)
+        .map(Zeroizing::new)
+        .map_err(|_| CryptoError::DecryptionFailed)
 }
 
 /// An RNG that hands out fixed bytes (test vectors only: the ephemeral key of a sealed box).

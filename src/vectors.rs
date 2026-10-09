@@ -94,6 +94,28 @@ fn compute() -> Value {
     let history_content =
         seal_with_nonce(&content_key, &history_nonce, conversation, 42, &device, &history_payload).expect("seal");
 
+    // Device share key (§3.1): derived from the device secret, signed by the device key.
+    let share_secret = device.share_secret();
+    let share_public = device.share_public_key();
+    let share_message = crate::share::share_key_signing_input(&share_public, &device.public_key(), device_id);
+    let share_signature = device.share_key_signature();
+
+    // A history share v2 (§7b): the payload under a fresh key, the key sealed to a recipient device's share key.
+    let bob_device_id = "01J9ZK3G5M8Q2W4E6R8T0Y2VB1";
+    let bob = Device::from_secret("bob@other.example", bob_device_id, &seq(48)).expect("device");
+    let share_key: [u8; 32] = seq(80);
+    let share_v2_nonce: [u8; 12] = seq(140);
+    let share_v2_payload = canonical_json(&format!(
+        r#"{{"type":"history_keys","v":2,"conversation":"{conversation}","to":"bob@other.example","epochs":[[41,"{}"],[42,"{}"]]}}"#,
+        b64url_encode(&seq::<32>(128)),
+        b64url_encode(&content_key)
+    ))
+    .expect("jcs");
+    let share_v2_content =
+        seal_with_nonce(&share_key, &share_v2_nonce, conversation, 42, &device, &share_v2_payload).expect("seal");
+    let mut box_rng = crate::sealed::FixedRng(seq(56));
+    let share_box = crate::sealed::seal_with_rng(&mut box_rng, &bob.share_public_key(), &share_key).expect("share box");
+
     // Whiteboard scenes (§7a) under the backup key, bound to scene id and part.
     let scene_id = "01J9ZK3G5M8Q2W4E6R8T0Y2VS1";
     let scene_json = r#"{"type":"excalidraw","elements":[]}"#;
@@ -169,6 +191,32 @@ fn compute() -> Value {
             "nonce": b64url_encode(&history_nonce),
             "payload": history_payload,
             "ciphertext": history_content,
+        },
+        "device_share_key": {
+            "device_id": device_id,
+            "device_secret_key": b64url_encode(&seq::<32>(32)),
+            "device_public_key": b64url_encode(&device.public_key()),
+            "share_secret_key": b64url_encode(share_secret.as_slice()),
+            "share_public_key": b64url_encode(&share_public),
+            "message": b64url_encode(&share_message),
+            "signature": b64url_encode(&share_signature),
+        },
+        "history_share_v2": {
+            "conversation": conversation,
+            "epoch": 42,
+            "author": user,
+            "device_id": device_id,
+            "to": "bob@other.example",
+            "recipient_device_id": bob_device_id,
+            "recipient_device_secret_key": b64url_encode(&seq::<32>(48)),
+            "recipient_share_secret_key": b64url_encode(bob.share_secret().as_slice()),
+            "recipient_share_public_key": b64url_encode(&bob.share_public_key()),
+            "share_key": b64url_encode(&share_key),
+            "nonce": b64url_encode(&share_v2_nonce),
+            "payload": share_v2_payload,
+            "ciphertext": share_v2_content,
+            "ephemeral_secret_key": b64url_encode(&seq::<32>(56)),
+            "box": b64url_encode(&share_box),
         },
         "local_storage_key": {
             "master_secret": b64url_encode(&seq::<32>(0)),
@@ -367,6 +415,34 @@ fn published_vectors_decrypt() {
     )
     .expect("open history share");
     assert_eq!(json, payload);
+
+    // Device share key (§3.1): derived from the device secret, its signature verifies with the device key.
+    let share_public = b64url_decode_array(&s(&["device_share_key", "share_public_key"]), "k").expect("key");
+    let device_secret = b64url_decode_array(&s(&["device_share_key", "device_secret_key"]), "k").expect("key");
+    assert_eq!(
+        b64url_encode(crate::share::share_secret(&device_secret).as_slice()),
+        s(&["device_share_key", "share_secret_key"])
+    );
+    let signature = crate::util::b64url_decode(&s(&["device_share_key", "signature"])).expect("b64");
+    crate::share::verify_share_key(&device_key, &s(&["device_share_key", "device_id"]), &share_public, &signature)
+        .expect("share key signature");
+
+    // History share v2 (§7b): the box opens with the recipient's share secret, the key opens the share.
+    let bob_secret = b64url_decode_array(&s(&["history_share_v2", "recipient_share_secret_key"]), "k").expect("key");
+    let sealed = crate::util::b64url_decode(&s(&["history_share_v2", "box"])).expect("b64");
+    let key = crate::share::open_share_box(&bob_secret, &sealed).expect("open box");
+    assert_eq!(b64url_encode(key.as_slice()), s(&["history_share_v2", "share_key"]));
+    let json = crate::share::decrypt_content_with_key(
+        &key,
+        &s(&["history_share_v2", "conversation"]),
+        &s(&["history_share_v2", "author"]),
+        &s(&["history_share_v2", "device_id"]),
+        &s(&["history_share_v2", "ciphertext"]),
+        &device_key,
+    )
+    .expect("open history share v2");
+    assert_eq!(json, s(&["history_share_v2", "payload"]));
+    assert_eq!(canonical_json(&json).expect("jcs"), json);
 
     // Local storage key (§2.1).
     let local = master.local_storage_key(&s(&["local_storage_key", "device_id"])).expect("local key");

@@ -25,7 +25,8 @@ used everywhere the same way: natively from Rust and, compiled to WebAssembly, a
 - **Encrypted formats**: message content (per-epoch key plus device signature), attachments, history
   backups, whiteboard scenes.
 - **Sealed boxes** for write-only webhooks into encrypted channels: libsodium-compatible `crypto_box_seal`
-  to a per-epoch inbox key that every member can derive.
+  to a per-epoch inbox key that every member can derive; the same boxes carry the keys of history shares v2 to
+  the share key of each recipient device (an X25519 key every device derives next to its device key).
 - **Voice frame keys**: the per-epoch key for encrypting voice and video frames.
 
 Every fallible function returns `CryptoError`; its messages and `code()` never contain secrets. Inputs are
@@ -36,7 +37,7 @@ validated, malformed data yields errors, not panics.
 | Consumer | How |
 |---|---|
 | [`tavrn-js`](https://github.com/just-tavrn/tavrn-js): `@tavrn/e2ee` | the npm package `@tavrn/crypto`: MLS session manager, content codecs and account flows shared by the web client and bots |
-| [`tavrn-node`](https://github.com/just-tavrn/tavrn-node) | the Rust crate: delivery-service validation (`ds`), device login proofs, identity continuity chains, plaintext signatures and webhook inbox keys |
+| [`tavrn-node`](https://github.com/just-tavrn/tavrn-node) | the Rust crate: delivery-service validation (`ds`), device login proofs, identity continuity chains, plaintext signatures, webhook inbox keys and device share keys |
 | [`tavrn-web`](https://github.com/just-tavrn/tavrn-web) | through `@tavrn/e2ee` (and later the desktop and mobile shells) |
 | your client or bot | either of the two, see below |
 

@@ -402,3 +402,30 @@ fn inbox_keys_follow_the_epoch_and_open_sealed_webhook_messages() {
     fresh.import_backup(CONV, &backup_key, &blob).expect("import");
     assert_eq!(fresh.open_sealed(CONV, 2, &later).expect("open").as_slice(), MSG.as_bytes());
 }
+
+#[test]
+fn history_shares_v2_are_readable_only_by_the_recipient_devices() {
+    // ENCRYPTION.md §7b format v2: content format 1 under a fresh key, sealed to the recipient device's share key.
+    let (alice, bob, group_info) = alice_and_bob();
+    let mut carol = client(CAROL, DEV_C);
+    carol.join_by_external_commit(CONV, &group_info).expect("join");
+    carol.merge_pending_commit(CONV).expect("merge");
+    let payload = r#"{"type":"history_keys","v":2}"#;
+    let (content, key) = alice.encrypt_share(CONV, payload).expect("encrypt share");
+    // The current epoch goes into the header (the node checks it), but the epoch's content key does not open it.
+    assert_eq!(content_header(&content).expect("header").epoch, alice.current_epoch(CONV).expect("epoch"));
+    let a = alice.device();
+    assert!(carol.decrypt_content(CONV, ALICE, DEV_A, &content, Some(&a.public_key())).is_err(), "not the epoch key");
+    let (_, key2) = alice.encrypt_share(CONV, payload).expect("encrypt share");
+    assert_ne!(key.as_slice(), key2.as_slice(), "a fresh key per share");
+    let sealed = tavrn_crypto::share::seal_share_key(&bob.device().share_public_key(), &key).expect("seal");
+    let opened = bob.open_share_box(&sealed).expect("bob opens his box");
+    assert_eq!(
+        tavrn_crypto::share::decrypt_content_with_key(&opened, CONV, ALICE, DEV_A, &content, &a.public_key())
+            .as_deref(),
+        Ok(payload)
+    );
+    assert_eq!(carol.open_share_box(&sealed).map(|_| ()), Err(CryptoError::DecryptionFailed), "carol cannot");
+    assert!(alice.encrypt_share(CONV2, payload).is_err(), "no group");
+    assert!(alice.encrypt_share(CONV, "[1]").is_err(), "JSON objects only");
+}

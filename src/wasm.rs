@@ -12,7 +12,7 @@ use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 
 use crate::error::CryptoError;
-use crate::{content, file, identity, keys, mls, plaintext, scene, sealed, secret_storage, verify};
+use crate::{content, file, identity, keys, mls, plaintext, scene, sealed, secret_storage, share, verify};
 
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
@@ -361,6 +361,81 @@ pub fn seal_to_inbox(public_key: &[u8], plaintext: &[u8]) -> JsResult<Vec<u8>> {
     sealed::seal(&arr(public_key, "public key")?, plaintext).map_err(js_err)
 }
 
+/// Checks a device's published share key against its (verified) device key (ENCRYPTION.md §3.1): clients seal
+/// nothing to a share key whose signature does not verify.
+#[wasm_bindgen(js_name = verifyDeviceShareKey)]
+pub fn verify_device_share_key(
+    device_id: &str,
+    device_public_key: &[u8],
+    share_public_key: &[u8],
+    signature: &[u8],
+) -> JsResult<bool> {
+    let device_key = arr::<32>(device_public_key, "device public key")?;
+    let share_key = arr::<32>(share_public_key, "share public key")?;
+    Ok(share::verify_share_key(&device_key, device_id, &share_key, signature).is_ok())
+}
+
+/// Seals the fresh key of a history share v2 to one recipient device's share public key (ENCRYPTION.md §7b).
+#[wasm_bindgen(js_name = sealShareKey)]
+pub fn seal_share_key(share_public_key: &[u8], key: &[u8]) -> JsResult<Vec<u8>> {
+    share::seal_share_key(&arr(share_public_key, "share public key")?, &arr(key, "share key")?).map_err(js_err)
+}
+
+/// Decrypts content format 1 under an explicit key (a history share v2 under the key from its box) and verifies the
+/// device signature; nothing is stored.
+#[wasm_bindgen(js_name = decryptContentWithKey)]
+pub fn decrypt_content_with_key(
+    key: &[u8],
+    conversation: &str,
+    author: &str,
+    device_id: &str,
+    content: &str,
+    device_public_key: &[u8],
+) -> JsResult<String> {
+    let key = zeroize::Zeroizing::new(arr::<32>(key, "share key")?);
+    let device_key = arr::<32>(device_public_key, "device public key")?;
+    share::decrypt_content_with_key(&key, conversation, author, device_id, content, &device_key).map_err(js_err)
+}
+
+/// The share secret key a device derives from its device secret (ENCRYPTION.md §3.1; test vectors and tools, clients
+/// use `Client.shareKey` and `Client.openShareBox`).
+#[wasm_bindgen(js_name = deviceShareSecretKey)]
+pub fn device_share_secret_key(device_secret_key: &[u8]) -> JsResult<Vec<u8>> {
+    let secret = zeroize::Zeroizing::new(arr::<32>(device_secret_key, "device secret key")?);
+    Ok(share::share_secret(&secret).to_vec())
+}
+
+/// The X25519 public key of a share secret key.
+#[wasm_bindgen(js_name = sharePublicKey)]
+pub fn share_public_key(share_secret_key: &[u8]) -> JsResult<Vec<u8>> {
+    let secret = zeroize::Zeroizing::new(arr::<32>(share_secret_key, "share secret key")?);
+    Ok(share::share_public_key(&secret).to_vec())
+}
+
+/// Opens a sealed share key with a raw share secret key (test vectors and tools; clients use `Client.openShareBox`).
+#[wasm_bindgen(js_name = openShareBox)]
+pub fn open_share_box(share_secret_key: &[u8], sealed: &[u8]) -> JsResult<Vec<u8>> {
+    let secret = zeroize::Zeroizing::new(arr::<32>(share_secret_key, "share secret key")?);
+    Ok(share::open_share_box(&secret, sealed).map_err(js_err)?.to_vec())
+}
+
+/// A device's share key with the device signature over it (`PUT /users/me/devices/{id}/share-key`).
+#[wasm_bindgen(getter_with_clone)]
+pub struct ShareKey {
+    #[wasm_bindgen(js_name = publicKey)]
+    pub public_key: Vec<u8>,
+    pub signature: Vec<u8>,
+}
+
+/// A history share v2: the content and the share key sealed to each recipient device, in the order of the share keys
+/// passed to `Client.encryptShare` (the key itself never leaves the WebAssembly module).
+#[wasm_bindgen(getter_with_clone)]
+pub struct EncryptedShare {
+    pub content: String,
+    pub epoch: f64,
+    pub boxes: Vec<Uint8Array>,
+}
+
 /// A published inbox key: `PUT /conversations/{id}/inbox-key` (ENCRYPTION.md §5b).
 #[wasm_bindgen(getter_with_clone)]
 pub struct InboxKey {
@@ -692,6 +767,46 @@ impl Client {
     #[wasm_bindgen(js_name = exportVoiceKey)]
     pub fn export_voice_key(&self, conversation: &str, epoch: f64) -> JsResult<Vec<u8>> {
         Ok(self.0.export_voice_key(conversation, epoch_from_js(epoch)?).map_err(js_err)?.to_vec())
+    }
+
+    /// This device's share key and the device signature over it (ENCRYPTION.md §3.1).
+    #[wasm_bindgen(js_name = shareKey)]
+    pub fn share_key(&self) -> ShareKey {
+        let device = self.0.device();
+        ShareKey { public_key: device.share_public_key().to_vec(), signature: device.share_key_signature().to_vec() }
+    }
+
+    /// A history share v2 (ENCRYPTION.md §7b): `json` encrypted and signed like content of the current epoch under a
+    /// fresh key, which is sealed to each of `share_public_keys` (verified share keys of the recipient's devices) and
+    /// then zeroed.
+    #[wasm_bindgen(js_name = encryptShare)]
+    pub fn encrypt_share(
+        &self,
+        conversation: &str,
+        json: &str,
+        share_public_keys: Vec<Uint8Array>,
+    ) -> JsResult<EncryptedShare> {
+        let recipients = share_public_keys
+            .iter()
+            .map(|k| arr::<32>(&k.to_vec(), "share public key"))
+            .collect::<JsResult<Vec<[u8; 32]>>>()?;
+        if recipients.is_empty() {
+            return Err(js_err(CryptoError::InvalidInput("no recipient devices")));
+        }
+        let (content, key) = self.0.encrypt_share(conversation, json).map_err(js_err)?;
+        let epoch = content::content_header(&content).map_err(js_err)?.epoch;
+        let boxes = recipients
+            .iter()
+            .map(|pk| share::seal_share_key(pk, &key).map(|b| Uint8Array::from(b.as_slice())))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(js_err)?;
+        Ok(EncryptedShare { content, epoch: epoch_to_js(epoch)?, boxes })
+    }
+
+    /// Opens a sealed share key addressed to this device; returns the 32-byte key (`decryption_failed` otherwise).
+    #[wasm_bindgen(js_name = openShareBox)]
+    pub fn open_share_box(&self, sealed: &[u8]) -> JsResult<Vec<u8>> {
+        Ok(self.0.open_share_box(sealed).map_err(js_err)?.to_vec())
     }
 
     /// The inbox public key of `epoch` with this device's signature (needs the epoch's content key).
