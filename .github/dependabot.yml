@@ -19,6 +19,11 @@ updates:
     groups:
       javascript:
         patterns: ["*"]
+    ignore:
+      # TypeScript 7 (the native compiler) ships no compiler API, which @hey-api/openapi-ts in tavrn-js needs;
+      # the three JavaScript repositories stay on one TypeScript version and move together (README.md "Tests").
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }

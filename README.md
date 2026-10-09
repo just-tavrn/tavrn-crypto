@@ -154,6 +154,11 @@ verifyPlaintext(fields, jcs(content), signature, devicePublicKey); // false = wr
   secret storage, verification vectors).
 - `just clippy-wasm` lints the bindings in `src/wasm.rs`, which only compile for `wasm32`.
 
+The package tests type-check with TypeScript 5.9, the same version tavrn-js and tavrn-web use. TypeScript 7 (the
+native compiler) type-checks this package, but its npm package ships no compiler API, which @hey-api/openapi-ts
+(the generator of the `@tavrn/sdk` types in tavrn-js) needs; all three repositories move to 7 together once the
+generator supports it, so Dependabot skips TypeScript majors here as well.
+
 ## Releases
 
 Versions follow the protocol's release train (protocol, then crypto, then the JavaScript packages, the node
