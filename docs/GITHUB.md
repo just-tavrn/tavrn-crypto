@@ -7,7 +7,7 @@ what is configured in the repository and what has to be set by hand.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci.yml` | push to `main`, pull requests, by hand | the organization's `rust-ci.yml` (`cargo fmt`, `cargo clippy` native and `wasm32`, `cargo test` incl. the protocol test vectors, `cargo deny`) and `js-ci.yml` (fresh WebAssembly build, SPDX and JS license checks, typecheck and Vitest against the new `pkg/dist`, `cargo publish --dry-run`, `npm pack --dry-run`) |
+| `ci.yml` | push to `main`, pull requests, by hand | the job `Publication hygiene` (`scripts/publish-check.sh`: no private files, domains or secrets), the organization's `rust-ci.yml` (`cargo fmt`, `cargo clippy` native and `wasm32`, `cargo test` incl. the protocol test vectors, `cargo deny`) and `js-ci.yml` (fresh WebAssembly build, SPDX and JS license checks, typecheck and Vitest against the new `pkg/dist`, `cargo publish --dry-run`, `npm pack --dry-run`) |
 | `release.yml` | tag `v*.*.*`, or by hand with a version | tests the release, builds and commits `pkg/dist` (manual run), tags, attaches the `.crate` and the npm tarball to a GitHub release, publication dry runs; real publishing only with `PUBLISH_ENABLED` |
 | `gitleaks.yml` | push to `main`, pull requests | the organization's `gitleaks.yml`: secret scan of the full history |
 | `dependency-review.yml` | pull requests | refuses vulnerable dependencies and licenses outside the allow-list |
@@ -23,6 +23,7 @@ Every job carries `if: ${{ vars.CI_ENABLED == 'true' }}`.
 | Name | Kind | Purpose |
 |---|---|---|
 | `CI_ENABLED` | variable | `true` switches all workflows on. Unset or anything else: every job is skipped. |
+| `PUBLISH_CHECK_PRIVATE` | secret (repository or organization) | comma-separated private domains, hosts and addresses that must never appear in the tree (`Publication hygiene`). Without it the check fails on purpose. Locally the same list lives in an untracked `.publish-check.private` (in the repository or its parent directory). Dependabot pull requests need it as a Dependabot secret as well. |
 | `TAVRN_READ_PAT` | secret | Private phase only: fine-grained PAT with `contents: read` on `tavrn-protocol`, `tavrn-crypto` and `tavrn-js`, passed to the reusable workflows as `READ_TOKEN` so they can fetch the private `protocol/` submodule. Delete it once the repositories are public. |
 | `PUBLISH_ENABLED` | variable | `true` lets the release workflow publish to crates.io and npm (after the dry runs). Leave unset until the repositories are public and the release train starts. |
 | `CARGO_REGISTRY_TOKEN` | secret | crates.io API token with publish rights for `tavrn-crypto` (only with `PUBLISH_ENABLED`). |
@@ -54,5 +55,5 @@ Default branch `main`, delete branches on merge, squash merges allowed, issues o
       (`ISSUE_TEMPLATE/config.yml`); nothing to switch on here.
 - [ ] Labels: `scripts/github-labels.sh` (needs `gh` with write access).
 - [ ] Once public: branch protection or a ruleset for `main` (require pull requests, the CI checks `Rust`,
-      `cargo deny`, `WebAssembly package`, `gitleaks`, `Dependency review`, `CLA`, linear history, no force
+      `cargo deny`, `WebAssembly package`, `Publication hygiene`, `gitleaks`, `Dependency review`, `CLA`, linear history, no force
       pushes) and tag protection for `v*`. Not available for private repositories on the free plan.

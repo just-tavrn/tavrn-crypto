@@ -52,3 +52,17 @@ jobs:
         cd pkg && npm pack --dry-run
     secrets:
       READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
+
+  publish-check:
+    name: Publication hygiene
+    if: ${{ vars.CI_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: No private files, domains or secrets
+        env:
+          # Comma-separated private domains, hosts and addresses (repository or organization secret).
+          PUBLISH_CHECK_PRIVATE: ${{ secrets.PUBLISH_CHECK_PRIVATE }}
+        run: scripts/publish-check.sh

@@ -51,6 +51,10 @@ publish-dry-run: wasm
     cargo publish --dry-run --locked --allow-dirty
     cd pkg && npm pack --dry-run
 
+# Pre-publication hygiene: no private files, domains or secrets (needs .publish-check.private or PUBLISH_CHECK_PRIVATE)
+publish-check:
+    scripts/publish-check.sh
+
 # Check out the protocol submodule (test vectors) if it is missing
 protocol:
     @[ -f protocol/testvectors/encryption.json ] || git submodule update --init protocol
