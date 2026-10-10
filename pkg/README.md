@@ -1,7 +1,8 @@
 # @tavrn/crypto
 
 The end-to-end encryption core of [tavrn](https://github.com/just-tavrn) (OpenMLS-based MLS client, key
-derivation, secret storage, identity verification, sealed boxes, voice frame keys), compiled to WebAssembly
+derivation, secret storage, identity verification, sealed boxes for webhooks and history shares, device share
+keys, voice frame keys), compiled to WebAssembly
 for browsers and Node.js. Built from the Rust crate `tavrn-crypto`; documentation, API overview and build
 instructions: <https://github.com/just-tavrn/tavrn-crypto#readme>.
 
