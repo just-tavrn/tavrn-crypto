@@ -50,7 +50,8 @@ Default branch `main`, delete branches on merge, squash merges allowed, issues o
 - [ ] Private vulnerability reporting (Settings → Code security), so "Report a vulnerability" works.
 - [ ] Dependency graph and Dependabot alerts (needed by `dependency-review.yml`; on private repositories
       only with GitHub Advanced Security).
-- [ ] Discussions: questions are routed to the organization's Discussions (`ISSUE_TEMPLATE/config.yml`).
+- [ ] Discussions: questions are routed to the Discussions of the umbrella repository `just-tavrn/tavrn`
+      (`ISSUE_TEMPLATE/config.yml`); nothing to switch on here.
 - [ ] Labels: `scripts/github-labels.sh` (needs `gh` with write access).
 - [ ] Once public: branch protection or a ruleset for `main` (require pull requests, the CI checks `Rust`,
       `cargo deny`, `WebAssembly package`, `gitleaks`, `Dependency review`, `CLA`, linear history, no force
