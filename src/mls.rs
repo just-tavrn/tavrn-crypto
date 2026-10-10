@@ -501,21 +501,42 @@ impl Client {
 
     /// Removes devices (by identity `<user>@<domain>/<device>`) from the group.
     pub fn remove_members(&mut self, conversation: &str, identities: &[String]) -> Result<CommitOutput> {
-        if identities.is_empty() {
+        self.remove_where(conversation, identities.len(), |m, i| {
+            credential_identity(&m.credential).is_ok_and(|id| id == identities[i])
+        })
+    }
+
+    /// Removes leaves by identity *and* signature key. Unlike [`Client::remove_members`] this picks exactly the
+    /// given leaf when two leaves name the same device, e.g. a leaf whose key is not the device's attested key.
+    pub fn remove_leaves(&mut self, conversation: &str, leaves: &[RosterEntry]) -> Result<CommitOutput> {
+        self.remove_where(conversation, leaves.len(), |m, i| {
+            m.signature_key == leaves[i].signature_key
+                && credential_identity(&m.credential).is_ok_and(|id| id == leaves[i].identity)
+        })
+    }
+
+    /// Commits the removal of one leaf per target `0..count`, the first member matching `matches(member, i)`.
+    fn remove_where(
+        &mut self,
+        conversation: &str,
+        count: usize,
+        matches: impl Fn(&Member, usize) -> bool,
+    ) -> Result<CommitOutput> {
+        if count == 0 {
             return Err(CryptoError::InvalidInput("no identities"));
         }
         let mut group = self.load_ready(conversation)?;
-        let own = self.device.identity();
-        let mut indices = Vec::with_capacity(identities.len());
-        for identity in identities {
-            if *identity == own {
-                return Err(CryptoError::InvalidInput("cannot remove own device"));
-            }
+        let own = group.own_leaf_index();
+        let mut indices = Vec::with_capacity(count);
+        for i in 0..count {
             let index = group
                 .members()
-                .find(|m| credential_identity(&m.credential).is_ok_and(|id| id == *identity))
+                .find(|m| matches(m, i))
                 .map(|m| m.index)
                 .ok_or(CryptoError::InvalidInput("identity is not a member"))?;
+            if index == own {
+                return Err(CryptoError::InvalidInput("cannot remove own device"));
+            }
             indices.push(index);
         }
         let epoch = group.epoch().as_u64();

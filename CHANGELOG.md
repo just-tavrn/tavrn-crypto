@@ -30,3 +30,5 @@ First public release, published to crates.io and npm.
   replace the device's old leaf).
 - `CommitSummary::removed_leaves` reports the signature key of every removed leaf, so a node can tell a leaf whose
   key does not match the device it names.
+- `Client::remove_leaves` (WebAssembly: `removeLeaves`) removes leaves by identity and signature key, so a client
+  can remove exactly the leaf whose key does not match the device it names, also when the genuine leaf is present.

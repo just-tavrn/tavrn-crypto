@@ -74,7 +74,7 @@ honors `CARGO_TARGET_DIR` and maps local paths out of the module.
 | `Device::{generate, from_secret, secret, identity, public_key, credential_with_key, attest}` | per-device Ed25519 key = MLS signature key |
 | `Client::new(device)`, `export_state`, `import_state` | MLS client of one device; state is one secret byte string |
 | `create_key_package`, `create_group`, `join_by_external_commit`, `join_by_welcome` | key packages and joining |
-| `add_members`, `remove_members`, `self_update` → `CommitOutput { commit, welcome, group_info, epoch }` | commits (pending until merged) |
+| `add_members`, `remove_members`, `remove_leaves`, `self_update` → `CommitOutput { commit, welcome, group_info, epoch }` | commits (pending until merged) |
 | `merge_pending_commit`, `discard_pending_commit` | after the node accepted / rejected the commit |
 | `process_handshake` → `HandshakeOutcome` | incoming commits in epoch order |
 | `current_epoch`, `roster`, `has_group`, `delete_group` | group state (roster for ghost detection) |
