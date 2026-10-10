@@ -169,6 +169,22 @@ describe("@tavrn/crypto (wasm)", () => {
     expect(errorName(() => bob.decryptContent(CONV, ALICE, DEV_A, c5))).toBe("unknown_epoch");
   });
 
+  it("removes exactly the leaf with the given key when two leaves name one device", () => {
+    const alice = Client.create(ALICE, DEV_A);
+    const bob = Client.create(BOB, DEV_B);
+    const forged = Client.create(BOB, DEV_B);
+    alice.createGroup(CONV);
+    alice.addMembers(CONV, [bob.createKeyPackage(), forged.createKeyPackage()]);
+    alice.mergePendingCommit(CONV);
+    expect(errorName(() => alice.removeLeaves(CONV, [`${BOB}/${DEV_B}`], []))).toBe("invalid_input");
+    alice.removeLeaves(CONV, [`${BOB}/${DEV_B}`], [forged.devicePublicKey]);
+    alice.mergePendingCommit(CONV);
+    expect(alice.roster(CONV).map((e) => Buffer.from(e.signatureKey).toString("hex"))).toEqual([
+      Buffer.from(alice.devicePublicKey).toString("hex"),
+      Buffer.from(bob.devicePublicKey).toString("hex"),
+    ]);
+  });
+
   it("publishes a share key per device and seals history shares v2 to it", () => {
     const alice = Client.create(ALICE, DEV_A);
     const bob = Client.create(BOB, DEV_B);

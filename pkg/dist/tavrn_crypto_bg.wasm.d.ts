@@ -105,6 +105,7 @@ export const client_mergePendingCommit: (a: number, b: number, c: number, d: num
 export const client_openSealed: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const client_openShareBox: (a: number, b: number, c: number, d: number) => void;
 export const client_processHandshake: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+export const client_removeLeaves: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
 export const client_removeMembers: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
 export const client_roster: (a: number, b: number, c: number, d: number) => void;
 export const client_selfUpdate: (a: number, b: number, c: number, d: number) => void;
