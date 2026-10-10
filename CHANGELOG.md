@@ -21,3 +21,10 @@ First public release, published to crates.io and npm.
 - **Sealed boxes**: write-only webhooks into encrypted channels (strict inbox-key signatures) and history shares of
   format 2, sealed to the share key every device derives next to its device key.
 - **Test vectors** of the protocol checked natively and through the WebAssembly package.
+
+### Security
+
+- The crates.io and npm tokens and the provenance permission live only in a publish job of a protected `release`
+  environment, which installs and builds nothing and publishes the packages the credential-free build job tested.
+- The release workflow no longer pushes tags; only organization owners create release tags.
+- The publication check prints only file and line of a private match, never the matching text.
