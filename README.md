@@ -38,7 +38,7 @@ validated, malformed data yields errors, not panics.
 |---|---|
 | [`tavrn-js`](https://github.com/just-tavrn/tavrn-js): `@tavrn/e2ee` | the npm package `@tavrn/crypto`: MLS session manager, content codecs and account flows shared by the web client and bots |
 | [`tavrn-node`](https://github.com/just-tavrn/tavrn-node) | the Rust crate: delivery-service validation (`ds`), device login proofs, identity continuity chains, plaintext signatures, webhook inbox keys and device share keys |
-| [`tavrn-web`](https://github.com/just-tavrn/tavrn-web) | through `@tavrn/e2ee` (and later the desktop and mobile shells) |
+| [`tavrn-web`](https://github.com/just-tavrn/tavrn-web) | through `@tavrn/e2ee`, in the browser and in the webview of the desktop app alike |
 | your client or bot | either of the two, see below |
 
 The protocol it implements lives in [`tavrn-protocol`](https://github.com/just-tavrn/tavrn-protocol),
@@ -83,6 +83,14 @@ honors `CARGO_TARGET_DIR` and maps local paths out of the module.
 | `export_voice_key` | voice frame key of the current epoch (ENCRYPTION.md §5a) |
 | `encrypt_file`, `decrypt_file` | attachments |
 | `content_header` | plaintext header (version, epoch, nonce) of a `content` value |
+| `encrypt_share`, `open_share_box` | a history share of format 2: content under a fresh key, the key sealed to the share key of every recipient device; opening the box addressed to this device (ENCRYPTION.md §7b) |
+| `inbox_key`, `open_sealed` | the epoch's inbox key of write-only webhooks and opening a sealed post (ENCRYPTION.md §5b) |
+| `Device::{share_secret, share_public_key, share_key_signature}`, `share::{share_secret, share_public_key, share_key_signing_input, verify_share_key, seal_share_key, open_share_box, decrypt_content_with_key}` | device share keys: an X25519 key derived from the device secret (`HKDF`, label `tavrn device share key v1`) and attested by the device key, published with it (ENCRYPTION.md §3.1) |
+| `sealed::{inbox_secret, inbox_public_key, inbox_signing_input, verify_inbox_key, seal, open, open_with_secret}` | libsodium-compatible sealed boxes (`x25519-xsalsa20poly1305-sealedbox`) and the inbox keys of write-only webhooks |
+| `IdentityKey`, `wrap_identity_key`, `unwrap_identity_key`, `sign_continuity`, `verify_continuity`, `continuity_reaches` | identity key rotation with continuity statements (ENCRYPTION.md §9a) |
+| `encrypt_backup`, `decrypt_backup`, `encrypt_scene`, `decrypt_scene` | history backups (§7) and whiteboard scenes (§7a) under the backup key |
+| `device::{login_proof_message, verify_login_proof}` | the device proof at login (ENCRYPTION.md §3.4) |
+| `CAPABILITY` (`e2ee.mls1`), `CONTENT_FORMAT_VERSION` | the capability string and the content format version |
 | `ds::DsGroup::{create, process_commit, epoch, roster, export_state, import_state}`, `ds::inspect_key_package`, `ds::group_info_epoch` | delivery-service validation for the node |
 | `verify::{safety_number, group_safety_number, verify_payload, parse_verify_payload, verify_payload_matches}` | safety numbers and the `tavrn:verify?…` QR payload (FEDERATION.md §10.1) |
 | `plaintext::{PlaintextFields, sign_plaintext, verify_plaintext, plaintext_signed_bytes, PlaintextSignature, canonical_content, canonical_json}` | device signatures on plaintext messages with RFC 8785 (JCS) content (FEDERATION.md §10.3) |
@@ -114,6 +122,14 @@ the web client and bots), whose `ensureCrypto()` picks `init()` in browsers and 
 
 Errors are thrown as `Error` objects whose `name` is the stable code (`stale_epoch`, `unknown_epoch`,
 `decryption_failed`, …). Epochs are plain numbers.
+
+History shares of format 2 (ENCRYPTION.md §3.1, §7b) are sealed inside the module, so the fresh key never reaches
+JavaScript: `client.shareKey()` gives this device's share public key and the device key's signature over it (published
+with the device key), `verifyDeviceShareKey(deviceId, devicePublicKey, sharePublicKey, signature)` checks a recipient
+device's key, `client.encryptShare(conversation, json, sharePublicKeys)` returns `{ content, epoch, boxes }` with one
+box per recipient key in the given order, and a recipient opens its box with `client.openShareBox(box)` and the
+content with `decryptContentWithKey(key, conversation, author, deviceId, content, devicePublicKey)`, which also checks
+the sender's device signature.
 
 Secret storage (ENCRYPTION.md §2.4):
 
@@ -154,19 +170,27 @@ verifyPlaintext(fields, jcs(content), signature, devicePublicKey); // false = wr
   secret storage, verification vectors).
 - `just clippy-wasm` lints the bindings in `src/wasm.rs`, which only compile for `wasm32`.
 
+The package tests type-check with TypeScript 5.9, the same version tavrn-js and tavrn-web use. TypeScript 7 (the
+native compiler) type-checks this package, but its npm package ships no compiler API, which @hey-api/openapi-ts
+(the generator of the `@tavrn/sdk` types in tavrn-js) needs; all three repositories move to 7 together once the
+generator supports it, so Dependabot skips TypeScript majors here as well.
+
 ## Releases
 
 Versions follow the protocol's release train (protocol, then crypto, then the JavaScript packages, the node
 and the web client). Until the packages are published to crates.io and npm, other repositories consume this
-one directly by tag:
+one directly by tag or commit:
 
 ```toml
-tavrn-crypto = { git = "https://github.com/just-tavrn/tavrn-crypto", tag = "v0.1.0" }
+tavrn-crypto = { git = "https://github.com/just-tavrn/tavrn-crypto", rev = "<commit>" }
 ```
 
 ```json
-"@tavrn/crypto": "github:just-tavrn/tavrn-crypto#v0.1.0&path:pkg"
+"@tavrn/crypto": "github:just-tavrn/tavrn-crypto#<commit>&path:pkg"
 ```
+
+The node, tavrn-js and tavrn-web pin the same commit of `main` (a tag works the same way: `tag = "v0.1.0"`,
+`#v0.1.0&path:pkg`).
 
 For the npm side the built `pkg/dist/` is committed, so consumers need no Rust toolchain. For now it is
 built locally and committed on `main` and on every release tag; once the CI runs, the release workflow
