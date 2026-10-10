@@ -21,3 +21,12 @@ First public release, published to crates.io and npm.
 - **Sealed boxes**: write-only webhooks into encrypted channels (strict inbox-key signatures) and history shares of
   format 2, sealed to the share key every device derives next to its device key.
 - **Test vectors** of the protocol checked natively and through the WebAssembly package.
+
+### Security
+
+- A member commit whose update path gives the committer's leaf another identity is refused by the delivery-service
+  checks and by clients (a leaf never changes its identity).
+- The delivery-service checks refuse a commit after which two leaves share a signature key (an external rejoin must
+  replace the device's old leaf).
+- `CommitSummary::removed_leaves` reports the signature key of every removed leaf, so a node can tell a leaf whose
+  key does not match the device it names.

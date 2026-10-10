@@ -161,6 +161,18 @@ pub(crate) fn check_proposals(staged: &StagedCommit) -> Result<()> {
     Ok(())
 }
 
+/// A leaf never changes its identity (ENCRYPTION.md §4.4): the new leaf of a member's update path must carry the
+/// committer's identity, otherwise a member could rename its leaf to another device while keeping its own key.
+/// OpenMLS leaves identity continuity to the application (RFC 9420 §5.3.1), so it is checked here.
+pub(crate) fn check_path_leaf_identity(staged: &StagedCommit, committer_identity: &str) -> Result<()> {
+    match staged.update_path_leaf_node() {
+        Some(leaf) if credential_identity(leaf.credential())? != committer_identity => {
+            Err(CryptoError::InvalidCredential)
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Added and removed identities of a staged commit (evaluated against the pre-commit tree).
 fn summarize(group: &MlsGroup, staged: &StagedCommit) -> Result<CommitSummary> {
     check_proposals(staged)?;
@@ -380,6 +392,22 @@ impl Client {
     /// Replaces any local state of the conversation. The commit stays pending until
     /// [`Client::merge_pending_commit`] (node accepted) or [`Client::discard_pending_commit`].
     pub fn join_by_external_commit(&mut self, conversation: &str, group_info: &[u8]) -> Result<CommitOutput> {
+        self.external_join(conversation, group_info, |_| true)
+    }
+
+    /// Test helper: an external join that leaves this device's old leaf in the group (drops the Remove OpenMLS
+    /// adds for a leaf with the same signature key), i.e. a join that would duplicate the key.
+    #[cfg(test)]
+    pub(crate) fn join_keeping_old_leaf(&mut self, conversation: &str, group_info: &[u8]) -> Result<CommitOutput> {
+        self.external_join(conversation, group_info, |p| p.proposal().proposal_type() != ProposalType::Remove)
+    }
+
+    fn external_join(
+        &mut self,
+        conversation: &str,
+        group_info: &[u8],
+        proposals: impl FnMut(&QueuedProposal) -> bool,
+    ) -> Result<CommitOutput> {
         check_conversation(conversation)?;
         let MlsMessageBodyIn::GroupInfo(group_info) = parse_message(group_info)? else {
             return Err(CryptoError::InvalidInput("not a GroupInfo"));
@@ -397,7 +425,7 @@ impl Client {
             .map_err(mls)?
             .load_psks(self.provider.storage())
             .map_err(mls)?
-            .build(self.provider.rand(), self.provider.crypto(), &self.device, |_| true)
+            .build(self.provider.rand(), self.provider.crypto(), &self.device, proposals)
             .map_err(mls)?
             .finalize(&self.provider)
             .map_err(mls)?;
@@ -519,6 +547,29 @@ impl Client {
         Self::finish_commit(bundle, epoch)
     }
 
+    /// Test helper: a self update whose new leaf carries `identity` in its credential (keeping this device's
+    /// signature key), i.e. a commit that tries to change the identity of the committer's leaf.
+    #[cfg(test)]
+    pub(crate) fn self_update_as(&mut self, conversation: &str, identity: &str) -> Result<CommitOutput> {
+        let mut group = self.load_ready(conversation)?;
+        let epoch = group.epoch().as_u64();
+        let credential_with_key = CredentialWithKey {
+            credential: BasicCredential::new(identity.as_bytes().to_vec()).into(),
+            signature_key: self.device.public_key().to_vec().into(),
+        };
+        let bundle = group
+            .commit_builder()
+            .force_self_update(true)
+            .leaf_node_parameters(LeafNodeParameters::builder().with_credential_with_key(credential_with_key).build())
+            .load_psks(self.provider.storage())
+            .map_err(mls)?
+            .build(self.provider.rand(), self.provider.crypto(), &self.device, |_| true)
+            .map_err(mls)?
+            .stage_commit(&self.provider)
+            .map_err(mls)?;
+        Self::finish_commit(bundle, epoch)
+    }
+
     /// Applies this device's pending commit after the node accepted it. Returns the new epoch.
     pub fn merge_pending_commit(&mut self, conversation: &str) -> Result<u64> {
         let mut group = self.load(conversation)?;
@@ -579,9 +630,13 @@ impl Client {
         let had_pending = group.pending_commit().is_some();
         let processed = group.process_message(&self.provider, message).map_err(mls)?;
         let external_join = matches!(processed.sender(), Sender::NewMemberCommit);
+        let from_member = matches!(processed.sender(), Sender::Member(_));
         let committer = credential_identity(processed.credential())?;
         let (summary, own) = match processed.into_content() {
             ProcessedMessageContent::StagedCommitMessage(staged) => {
+                if from_member {
+                    check_path_leaf_identity(&staged, &committer)?;
+                }
                 let summary = summarize(&group, &staged)?;
                 group.merge_staged_commit(&self.provider, *staged).map_err(mls)?;
                 (summary, false)
