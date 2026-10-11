@@ -172,6 +172,11 @@ fn a_leaf_with_another_key_is_removed_exactly_and_reported_with_its_key() {
     let out = alice.add_members(CONV, &[forged.create_key_package().expect("kp")]).expect("add");
     ds.process_commit(&out.commit, &out.group_info).expect("the DS checks no attestations");
     alice.merge_pending_commit(CONV).expect("merge");
+    assert_eq!(
+        alice.remove_members(CONV, &[format!("{BOB}/{DEV_B}")]).err(),
+        Some(CryptoError::InvalidInput("identity names several leaves; remove them by key")),
+        "removal by identity is ambiguous here"
+    );
     let leaf =
         tavrn_crypto::RosterEntry { identity: format!("{BOB}/{DEV_B}"), signature_key: forged.device().public_key() };
     let rm = alice.remove_leaves(CONV, std::slice::from_ref(&leaf)).expect("remove");

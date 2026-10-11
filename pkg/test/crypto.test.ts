@@ -177,6 +177,7 @@ describe("@tavrn/crypto (wasm)", () => {
     alice.addMembers(CONV, [bob.createKeyPackage(), forged.createKeyPackage()]);
     alice.mergePendingCommit(CONV);
     expect(errorName(() => alice.removeLeaves(CONV, [`${BOB}/${DEV_B}`], []))).toBe("invalid_input");
+    expect(errorName(() => alice.removeMembers(CONV, [`${BOB}/${DEV_B}`]))).toBe("invalid_input");
     alice.removeLeaves(CONV, [`${BOB}/${DEV_B}`], [forged.devicePublicKey]);
     alice.mergePendingCommit(CONV);
     expect(alice.roster(CONV).map((e) => Buffer.from(e.signatureKey).toString("hex"))).toEqual([

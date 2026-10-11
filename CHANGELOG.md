@@ -32,3 +32,5 @@ First public release, published to crates.io and npm.
   key does not match the device it names.
 - `Client::remove_leaves` (WebAssembly: `removeLeaves`) removes leaves by identity and signature key, so a client
   can remove exactly the leaf whose key does not match the device it names, also when the genuine leaf is present.
+- `Client::remove_members` refuses an identity that names several leaves (`invalid_input`): such leaves are removed
+  by key with `remove_leaves`.

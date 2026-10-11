@@ -499,8 +499,17 @@ impl Client {
         Self::finish_commit(bundle, epoch)
     }
 
-    /// Removes devices (by identity `<user>@<domain>/<device>`) from the group.
+    /// Removes devices (by identity `<user>@<domain>/<device>`) from the group. An identity that names two leaves
+    /// (one of them with a key that is not the device's) is refused as ambiguous: use [`Client::remove_leaves`].
     pub fn remove_members(&mut self, conversation: &str, identities: &[String]) -> Result<CommitOutput> {
+        let group = self.load_ready(conversation)?;
+        for identity in identities {
+            let leaves =
+                group.members().filter(|m| credential_identity(&m.credential).is_ok_and(|id| id == *identity)).count();
+            if leaves > 1 {
+                return Err(CryptoError::InvalidInput("identity names several leaves; remove them by key"));
+            }
+        }
         self.remove_where(conversation, identities.len(), |m, i| {
             credential_identity(&m.credential).is_ok_and(|id| id == identities[i])
         })
