@@ -193,8 +193,8 @@ The node, tavrn-js and tavrn-web pin the same commit of `main` (a tag works the 
 `#v0.1.0&path:pkg`).
 
 For the npm side the built `pkg/dist/` is committed, so consumers need no Rust toolchain. For now it is
-built locally and committed on `main` and on every release tag; once the CI runs, the release workflow
-builds it and `main` stops carrying it.
+built and committed on `main` and on every release tag (locally, or by a manual run of the release workflow, whose
+artifact `pkg-dist` is then committed); once the packages are published, `main` stops carrying it.
 
 ## Licensing
 
