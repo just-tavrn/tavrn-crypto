@@ -718,6 +718,35 @@ export class Client {
         }
     }
     /**
+     * Removes leaves by identity and signature key (`identities[i]` with `signatureKeys[i]`): exactly that leaf,
+     * also when another leaf names the same device.
+     * @param {string} conversation
+     * @param {string[]} identities
+     * @param {Uint8Array[]} signature_keys
+     * @returns {CommitOutput}
+     */
+    removeLeaves(conversation, identities, signature_keys) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(conversation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passArrayJsValueToWasm0(identities, wasm.__wbindgen_export);
+            const len1 = WASM_VECTOR_LEN;
+            const ptr2 = passArrayJsValueToWasm0(signature_keys, wasm.__wbindgen_export);
+            const len2 = WASM_VECTOR_LEN;
+            wasm.client_removeLeaves(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return CommitOutput.__wrap(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * @param {string} conversation
      * @param {string[]} identities
      * @returns {CommitOutput}

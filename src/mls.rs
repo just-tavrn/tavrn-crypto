@@ -161,6 +161,18 @@ pub(crate) fn check_proposals(staged: &StagedCommit) -> Result<()> {
     Ok(())
 }
 
+/// A leaf never changes its identity (ENCRYPTION.md §4.4): the new leaf of a member's update path must carry the
+/// committer's identity, otherwise a member could rename its leaf to another device while keeping its own key.
+/// OpenMLS leaves identity continuity to the application (RFC 9420 §5.3.1), so it is checked here.
+pub(crate) fn check_path_leaf_identity(staged: &StagedCommit, committer_identity: &str) -> Result<()> {
+    match staged.update_path_leaf_node() {
+        Some(leaf) if credential_identity(leaf.credential())? != committer_identity => {
+            Err(CryptoError::InvalidCredential)
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Added and removed identities of a staged commit (evaluated against the pre-commit tree).
 fn summarize(group: &MlsGroup, staged: &StagedCommit) -> Result<CommitSummary> {
     check_proposals(staged)?;
@@ -380,6 +392,22 @@ impl Client {
     /// Replaces any local state of the conversation. The commit stays pending until
     /// [`Client::merge_pending_commit`] (node accepted) or [`Client::discard_pending_commit`].
     pub fn join_by_external_commit(&mut self, conversation: &str, group_info: &[u8]) -> Result<CommitOutput> {
+        self.external_join(conversation, group_info, |_| true)
+    }
+
+    /// Test helper: an external join that leaves this device's old leaf in the group (drops the Remove OpenMLS
+    /// adds for a leaf with the same signature key), i.e. a join that would duplicate the key.
+    #[cfg(test)]
+    pub(crate) fn join_keeping_old_leaf(&mut self, conversation: &str, group_info: &[u8]) -> Result<CommitOutput> {
+        self.external_join(conversation, group_info, |p| p.proposal().proposal_type() != ProposalType::Remove)
+    }
+
+    fn external_join(
+        &mut self,
+        conversation: &str,
+        group_info: &[u8],
+        proposals: impl FnMut(&QueuedProposal) -> bool,
+    ) -> Result<CommitOutput> {
         check_conversation(conversation)?;
         let MlsMessageBodyIn::GroupInfo(group_info) = parse_message(group_info)? else {
             return Err(CryptoError::InvalidInput("not a GroupInfo"));
@@ -397,7 +425,7 @@ impl Client {
             .map_err(mls)?
             .load_psks(self.provider.storage())
             .map_err(mls)?
-            .build(self.provider.rand(), self.provider.crypto(), &self.device, |_| true)
+            .build(self.provider.rand(), self.provider.crypto(), &self.device, proposals)
             .map_err(mls)?
             .finalize(&self.provider)
             .map_err(mls)?;
@@ -471,23 +499,53 @@ impl Client {
         Self::finish_commit(bundle, epoch)
     }
 
-    /// Removes devices (by identity `<user>@<domain>/<device>`) from the group.
+    /// Removes devices (by identity `<user>@<domain>/<device>`) from the group. An identity that names two leaves
+    /// (one of them with a key that is not the device's) is refused as ambiguous: use [`Client::remove_leaves`].
     pub fn remove_members(&mut self, conversation: &str, identities: &[String]) -> Result<CommitOutput> {
-        if identities.is_empty() {
+        let group = self.load_ready(conversation)?;
+        for identity in identities {
+            let leaves =
+                group.members().filter(|m| credential_identity(&m.credential).is_ok_and(|id| id == *identity)).count();
+            if leaves > 1 {
+                return Err(CryptoError::InvalidInput("identity names several leaves; remove them by key"));
+            }
+        }
+        self.remove_where(conversation, identities.len(), |m, i| {
+            credential_identity(&m.credential).is_ok_and(|id| id == identities[i])
+        })
+    }
+
+    /// Removes leaves by identity *and* signature key. Unlike [`Client::remove_members`] this picks exactly the
+    /// given leaf when two leaves name the same device, e.g. a leaf whose key is not the device's attested key.
+    pub fn remove_leaves(&mut self, conversation: &str, leaves: &[RosterEntry]) -> Result<CommitOutput> {
+        self.remove_where(conversation, leaves.len(), |m, i| {
+            m.signature_key == leaves[i].signature_key
+                && credential_identity(&m.credential).is_ok_and(|id| id == leaves[i].identity)
+        })
+    }
+
+    /// Commits the removal of one leaf per target `0..count`, the first member matching `matches(member, i)`.
+    fn remove_where(
+        &mut self,
+        conversation: &str,
+        count: usize,
+        matches: impl Fn(&Member, usize) -> bool,
+    ) -> Result<CommitOutput> {
+        if count == 0 {
             return Err(CryptoError::InvalidInput("no identities"));
         }
         let mut group = self.load_ready(conversation)?;
-        let own = self.device.identity();
-        let mut indices = Vec::with_capacity(identities.len());
-        for identity in identities {
-            if *identity == own {
-                return Err(CryptoError::InvalidInput("cannot remove own device"));
-            }
+        let own = group.own_leaf_index();
+        let mut indices = Vec::with_capacity(count);
+        for i in 0..count {
             let index = group
                 .members()
-                .find(|m| credential_identity(&m.credential).is_ok_and(|id| id == *identity))
+                .find(|m| matches(m, i))
                 .map(|m| m.index)
                 .ok_or(CryptoError::InvalidInput("identity is not a member"))?;
+            if index == own {
+                return Err(CryptoError::InvalidInput("cannot remove own device"));
+            }
             indices.push(index);
         }
         let epoch = group.epoch().as_u64();
@@ -510,6 +568,29 @@ impl Client {
         let bundle = group
             .commit_builder()
             .force_self_update(true)
+            .load_psks(self.provider.storage())
+            .map_err(mls)?
+            .build(self.provider.rand(), self.provider.crypto(), &self.device, |_| true)
+            .map_err(mls)?
+            .stage_commit(&self.provider)
+            .map_err(mls)?;
+        Self::finish_commit(bundle, epoch)
+    }
+
+    /// Test helper: a self update whose new leaf carries `identity` in its credential (keeping this device's
+    /// signature key), i.e. a commit that tries to change the identity of the committer's leaf.
+    #[cfg(test)]
+    pub(crate) fn self_update_as(&mut self, conversation: &str, identity: &str) -> Result<CommitOutput> {
+        let mut group = self.load_ready(conversation)?;
+        let epoch = group.epoch().as_u64();
+        let credential_with_key = CredentialWithKey {
+            credential: BasicCredential::new(identity.as_bytes().to_vec()).into(),
+            signature_key: self.device.public_key().to_vec().into(),
+        };
+        let bundle = group
+            .commit_builder()
+            .force_self_update(true)
+            .leaf_node_parameters(LeafNodeParameters::builder().with_credential_with_key(credential_with_key).build())
             .load_psks(self.provider.storage())
             .map_err(mls)?
             .build(self.provider.rand(), self.provider.crypto(), &self.device, |_| true)
@@ -579,9 +660,13 @@ impl Client {
         let had_pending = group.pending_commit().is_some();
         let processed = group.process_message(&self.provider, message).map_err(mls)?;
         let external_join = matches!(processed.sender(), Sender::NewMemberCommit);
+        let from_member = matches!(processed.sender(), Sender::Member(_));
         let committer = credential_identity(processed.credential())?;
         let (summary, own) = match processed.into_content() {
             ProcessedMessageContent::StagedCommitMessage(staged) => {
+                if from_member {
+                    check_path_leaf_identity(&staged, &committer)?;
+                }
                 let summary = summarize(&group, &staged)?;
                 group.merge_staged_commit(&self.provider, *staged).map_err(mls)?;
                 (summary, false)

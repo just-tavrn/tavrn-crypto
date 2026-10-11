@@ -163,3 +163,34 @@ fn key_packages_are_inspected() {
     assert!(inspect_key_package(&[]).is_err());
     assert!(group_info_epoch(CONV, &kp).is_err());
 }
+
+#[test]
+fn a_leaf_with_another_key_is_removed_exactly_and_reported_with_its_key() {
+    let (mut ds, mut alice, bob, _) = setup();
+    // A second leaf naming Bob's device with a key that is not his (the node's rules would refuse to add it).
+    let forged = client(BOB, DEV_B);
+    let out = alice.add_members(CONV, &[forged.create_key_package().expect("kp")]).expect("add");
+    ds.process_commit(&out.commit, &out.group_info).expect("the DS checks no attestations");
+    alice.merge_pending_commit(CONV).expect("merge");
+    assert_eq!(
+        alice.remove_members(CONV, &[format!("{BOB}/{DEV_B}")]).err(),
+        Some(CryptoError::InvalidInput("identity names several leaves; remove them by key")),
+        "removal by identity is ambiguous here"
+    );
+    let leaf =
+        tavrn_crypto::RosterEntry { identity: format!("{BOB}/{DEV_B}"), signature_key: forged.device().public_key() };
+    let rm = alice.remove_leaves(CONV, std::slice::from_ref(&leaf)).expect("remove");
+    let s = ds.process_commit(&rm.commit, &rm.group_info).expect("accepted");
+    assert_eq!(s.removed, vec![leaf.identity.clone()]);
+    assert_eq!(s.removed_leaves, vec![leaf]);
+    alice.merge_pending_commit(CONV).expect("merge");
+    let keys: Vec<[u8; 32]> = ds.roster().expect("roster").into_iter().map(|e| e.signature_key).collect();
+    assert_eq!(keys, vec![alice.device().public_key(), bob.device().public_key()], "Bob's own leaf stays");
+    // Unknown leaves and the own leaf are refused.
+    let unknown = tavrn_crypto::RosterEntry { identity: format!("{BOB}/{DEV_B}"), signature_key: [7; 32] };
+    assert!(alice.remove_leaves(CONV, &[unknown]).is_err());
+    let own =
+        tavrn_crypto::RosterEntry { identity: format!("{ALICE}/{DEV_A}"), signature_key: alice.device().public_key() };
+    assert!(alice.remove_leaves(CONV, &[own]).is_err());
+    assert!(alice.remove_leaves(CONV, &[]).is_err());
+}
