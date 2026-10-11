@@ -6,8 +6,9 @@
 #   publishing credential; `release` attaches both to a GitHub release; `publish` (environment `release`: tags v*, the
 #   owner's approval; repository variable PUBLISH_ENABLED; secrets CARGO_REGISTRY_TOKEN and NPM_TOKEN of the
 #   environment) publishes them. `publish` installs nothing and runs no code of the repository: npm publishes the
-#   tarball of `build`, and `cargo publish --no-verify` uploads the crate packaged from the tag after checking that
-#   it is the crate `build` tested (no build script or macro runs).
+#   tarball of `build` after comparing it with `npm pack --ignore-scripts` of the tag, and `cargo publish --no-verify`
+#   uploads the crate packaged from the tag after checking that it is the crate `build` tested (no build script or
+#   macro runs).
 # - Run the workflow by hand with a version to prepare a release: it builds pkg/dist from main, tests it and uploads
 #   it as the artifact pkg-dist; commit it, tag the commit and push the tag (a workflow token cannot create v* tags).
 # Gated by CI_ENABLED.
@@ -156,6 +157,17 @@ jobs:
         with:
           name: release-packages
           path: "${{ runner.temp }}/release"
+      - name: The npm tarball to publish holds the tag's files
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: |
+          # pkg/dist is committed on the tag: npm pack without scripts must give the same files.
+          mkdir -p "$RUNNER_TEMP/npm-tag" "$RUNNER_TEMP/npm-a" "$RUNNER_TEMP/npm-b"
+          (cd pkg && npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/npm-tag" >/dev/null)
+          tar -xzf "$RELEASE_DIR/tavrn-crypto-$VERSION.tgz" -C "$RUNNER_TEMP/npm-a"
+          tar -xzf "$RUNNER_TEMP/npm-tag/tavrn-crypto-$VERSION.tgz" -C "$RUNNER_TEMP/npm-b"
+          diff -r "$RUNNER_TEMP/npm-a" "$RUNNER_TEMP/npm-b"
       - name: The crate to publish is the one the build tested
         env:
           VERSION: ${{ needs.build.outputs.version }}
