@@ -77,6 +77,11 @@ export class Client {
      */
     openShareBox(sealed: Uint8Array): Uint8Array;
     processHandshake(conversation: string, message: Uint8Array): HandshakeOutcome;
+    /**
+     * Removes leaves by identity and signature key (`identities[i]` with `signatureKeys[i]`): exactly that leaf,
+     * also when another leaf names the same device.
+     */
+    removeLeaves(conversation: string, identities: string[], signature_keys: Uint8Array[]): CommitOutput;
     removeMembers(conversation: string, identities: string[]): CommitOutput;
     roster(conversation: string): RosterEntry[];
     selfUpdate(conversation: string): CommitOutput;
@@ -603,6 +608,7 @@ export interface InitOutput {
     readonly client_openSealed: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly client_openShareBox: (a: number, b: number, c: number, d: number) => void;
     readonly client_processHandshake: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly client_removeLeaves: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
     readonly client_removeMembers: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly client_roster: (a: number, b: number, c: number, d: number) => void;
     readonly client_selfUpdate: (a: number, b: number, c: number, d: number) => void;

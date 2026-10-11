@@ -16,8 +16,8 @@ use openmls_rust_crypto::{MemoryStorage, RustCrypto};
 
 use crate::error::{CryptoError, Result, mls};
 use crate::mls::{
-    CIPHERSUITE, RosterEntry, check_proposals, credential_identity, parse_message, read_storage, roster_of,
-    signature_key_array, write_storage,
+    CIPHERSUITE, RosterEntry, check_path_leaf_identity, check_proposals, credential_identity, parse_message,
+    read_storage, roster_of, signature_key_array, write_storage,
 };
 use crate::util::{Reader, check_conversation, put_str16};
 
@@ -38,6 +38,9 @@ pub struct CommitSummary {
     pub added: Vec<RosterEntry>,
     /// Identities removed (for an external join: the joiner's own stale leaf, if any).
     pub removed: Vec<String>,
+    /// The removed leaves with their signature keys, in the order of `removed`: the node compares the key with
+    /// the attested key of the device the leaf names.
+    pub removed_leaves: Vec<RosterEntry>,
 }
 
 /// Public group state of one conversation as tracked by the node.
@@ -137,6 +140,9 @@ impl DsGroup {
             return Err(CryptoError::InvalidInput("only commits are accepted"));
         };
         check_proposals(&staged)?;
+        if !external_join {
+            check_path_leaf_identity(&staged, &committer_identity)?;
+        }
         let committer_key = match staged.update_path_leaf_node() {
             Some(leaf) => leaf.signature_key().as_slice().to_vec(),
             None => committer_key.ok_or(CryptoError::InvalidCredential)?,
@@ -151,19 +157,23 @@ impl DsGroup {
                 signature_key: signature_key_array(leaf.signature_key().as_slice())?,
             });
         }
-        let mut removed = Vec::new();
+        let mut removed_leaves = Vec::new();
         for remove in staged.remove_proposals() {
             let leaf = self.group.leaf(remove.remove_proposal().removed()).ok_or(CryptoError::InvalidCredential)?;
-            removed.push(credential_identity(leaf.credential())?);
+            removed_leaves.push(RosterEntry {
+                identity: credential_identity(leaf.credential())?,
+                signature_key: signature_key_array(leaf.signature_key().as_slice())?,
+            });
         }
+        let removed = removed_leaves.iter().map(|e| e.identity.clone()).collect();
 
         // Apply to a copy, check the new GroupInfo against it, then swap.
         let mut next = self.try_clone()?;
         next.group.merge_commit(&next.storage, *staged).map_err(mls)?;
         next.check_group_info(group_info, &committer.signature_key)?;
-        roster_of(next.group.members())?;
+        check_unique_keys(&roster_of(next.group.members())?)?;
         *self = next;
-        Ok(CommitSummary { epoch, new_epoch: epoch + 1, committer, external_join, added, removed })
+        Ok(CommitSummary { epoch, new_epoch: epoch + 1, committer, external_join, added, removed, removed_leaves })
     }
 
     fn check_group_info(&self, group_info: &[u8], signer_key: &[u8; 32]) -> Result<()> {
@@ -210,6 +220,17 @@ impl DsGroup {
     }
 }
 
+/// No two leaves share a signature key: OpenMLS checks this for Add proposals only, not for the path leaf of an
+/// external commit, and a tree with a duplicate key cannot be joined by anyone afterwards.
+fn check_unique_keys(roster: &[RosterEntry]) -> Result<()> {
+    let mut keys: Vec<&[u8; 32]> = roster.iter().map(|e| &e.signature_key).collect();
+    keys.sort_unstable();
+    if keys.windows(2).any(|w| w[0] == w[1]) {
+        return Err(CryptoError::InvalidCredential);
+    }
+    Ok(())
+}
+
 /// Validates an uploaded KeyPackage and returns its device identity and signature key, so the
 /// node can check that it belongs to the uploading device.
 pub fn inspect_key_package(bytes: &[u8]) -> Result<RosterEntry> {
@@ -231,4 +252,77 @@ pub fn inspect_key_package(bytes: &[u8]) -> Result<RosterEntry> {
 pub fn group_info_epoch(conversation: &str, bytes: &[u8]) -> Result<u64> {
     check_conversation(conversation)?;
     Ok(parse_group_info(conversation, bytes)?.epoch().as_u64())
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+    use super::*;
+    use crate::{Client, Device};
+
+    const CONV: &str = "node.example/01J9ZK3G5M8Q2W4E6R8T0Y2V00";
+    const VICTIM: &str = "victim@node.example/01J9ZK3G5M8Q2W4E6R8T0Y2VV1";
+
+    fn client(user: &str, dev: &str) -> Client {
+        Client::new(Device::generate(user, dev).expect("device"))
+    }
+
+    /// Alice creates the group, adds Mallory and Bob; the node tracks every step.
+    fn group() -> (DsGroup, Client, Client, Client) {
+        let mut alice = client("alice@node.example", "01J9ZK3G5M8Q2W4E6R8T0Y2VA1");
+        let mut mallory = client("mallory@node.example", "01J9ZK3G5M8Q2W4E6R8T0Y2VM1");
+        let mut bob = client("bob@node.example", "01J9ZK3G5M8Q2W4E6R8T0Y2VB1");
+        let gi = alice.create_group(CONV).expect("create");
+        let mut ds = DsGroup::create(CONV, &gi).expect("ds");
+        let kps = [mallory.create_key_package().expect("kp"), bob.create_key_package().expect("kp")];
+        let out = alice.add_members(CONV, &kps).expect("add");
+        ds.process_commit(&out.commit, &out.group_info).expect("add accepted");
+        alice.merge_pending_commit(CONV).expect("merge");
+        let welcome = out.welcome.expect("welcome");
+        mallory.join_by_welcome(&welcome).expect("mallory joins");
+        bob.join_by_welcome(&welcome).expect("bob joins");
+        (ds, alice, mallory, bob)
+    }
+
+    /// A leaf never changes its identity: a member's self update whose new leaf names another device (with the
+    /// committer's own key) is refused by the delivery service and by members, and changes nothing.
+    #[test]
+    fn member_commit_cannot_change_its_leaf_identity() {
+        let (mut ds, _alice, mut mallory, mut bob) = group();
+        let up = mallory.self_update_as(CONV, VICTIM).expect("crafted update");
+        assert_eq!(ds.process_commit(&up.commit, &up.group_info).err(), Some(CryptoError::InvalidCredential));
+        assert_eq!(ds.epoch(), 1, "state unchanged");
+        assert_eq!(bob.process_handshake(CONV, &up.commit).err(), Some(CryptoError::InvalidCredential));
+        assert_eq!(bob.current_epoch(CONV).ok(), Some(1));
+        let roster: Vec<String> = ds.roster().expect("roster").into_iter().map(|e| e.identity).collect();
+        assert!(!roster.contains(&VICTIM.to_owned()), "{roster:?}");
+
+        // An honest self update of the same member still goes through, at the DS and at the other members.
+        mallory.discard_pending_commit(CONV).expect("discard");
+        let up = mallory.self_update(CONV).expect("update");
+        ds.process_commit(&up.commit, &up.group_info).expect("accepted");
+        bob.process_handshake(CONV, &up.commit).expect("bob follows");
+    }
+
+    /// No two leaves share a signature key: an external rejoin that keeps the device's old leaf is refused (such a
+    /// tree could not be joined by anyone afterwards); the regular rejoin replaces the old leaf.
+    #[test]
+    fn external_join_cannot_duplicate_a_signature_key() {
+        let (mut ds, mut alice, mallory, bob) = group();
+        // A blank leaf left of Bob's: OpenMLS places the joiner there, so the crafted join is well-formed.
+        let up = alice.remove_members(CONV, &[mallory.device().identity()]).expect("remove");
+        ds.process_commit(&up.commit, &up.group_info).expect("accepted");
+        let mut again = Client::new(
+            Device::from_secret(bob.device().user_address(), bob.device().device_id(), &bob.device().secret())
+                .expect("device"),
+        );
+        let j = again.join_keeping_old_leaf(CONV, &up.group_info).expect("crafted join");
+        assert_eq!(ds.process_commit(&j.commit, &j.group_info).err(), Some(CryptoError::InvalidCredential));
+        assert_eq!(ds.epoch(), 2, "state unchanged");
+        let j = again.join_by_external_commit(CONV, &up.group_info).expect("join");
+        let s = ds.process_commit(&j.commit, &j.group_info).expect("rejoin replaces the old leaf");
+        assert_eq!(s.removed, vec![bob.device().identity()]);
+        assert_eq!(s.removed_leaves[0].signature_key, bob.device().public_key());
+        assert_eq!(ds.roster().expect("roster").len(), 2);
+    }
 }

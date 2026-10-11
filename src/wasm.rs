@@ -678,6 +678,31 @@ impl Client {
         CommitOutput::from_native(self.0.remove_members(conversation, &identities).map_err(js_err)?)
     }
 
+    /// Removes leaves by identity and signature key (`identities[i]` with `signatureKeys[i]`): exactly that leaf,
+    /// also when another leaf names the same device.
+    #[wasm_bindgen(js_name = removeLeaves)]
+    pub fn remove_leaves(
+        &mut self,
+        conversation: &str,
+        identities: Vec<String>,
+        signature_keys: Vec<Uint8Array>,
+    ) -> JsResult<CommitOutput> {
+        if identities.len() != signature_keys.len() {
+            return Err(js_err(CryptoError::InvalidInput("identities and signature keys differ in length")));
+        }
+        let leaves = identities
+            .into_iter()
+            .zip(signature_keys.iter())
+            .map(|(identity, key)| {
+                let signature_key: [u8; 32] =
+                    key.to_vec().try_into().map_err(|_| CryptoError::InvalidInput("signature key length"))?;
+                Ok(mls::RosterEntry { identity, signature_key })
+            })
+            .collect::<std::result::Result<Vec<_>, CryptoError>>()
+            .map_err(js_err)?;
+        CommitOutput::from_native(self.0.remove_leaves(conversation, &leaves).map_err(js_err)?)
+    }
+
     #[wasm_bindgen(js_name = selfUpdate)]
     pub fn self_update(&mut self, conversation: &str) -> JsResult<CommitOutput> {
         CommitOutput::from_native(self.0.self_update(conversation).map_err(js_err)?)

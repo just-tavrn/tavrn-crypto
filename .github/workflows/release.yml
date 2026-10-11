@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: MPL-2.0
 #
-# Release of tavrn-crypto and @tavrn/crypto (docs/GITHUB.md, README.md "Releases"). Two ways:
-# - push a tag vX.Y.Z whose commit already carries the built pkg/dist (how v0.1.0 was made, built locally):
-#   the workflow tests the committed package and attaches the .crate and the npm tarball to a GitHub release;
-# - run the workflow by hand with a version: it builds pkg/dist, commits it on top of main as the release
-#   commit, tags it vX.Y.Z, pushes the tag and attaches the tarballs.
-# Publishing to crates.io and npm is prepared as dry runs; the real publish step additionally needs the
-# repository variable PUBLISH_ENABLED and the secrets CARGO_REGISTRY_TOKEN and NPM_TOKEN.
-# Gated by CI_ENABLED. A tag pushed by this workflow (job token) does not start it again.
+# Release of tavrn-crypto and @tavrn/crypto (docs/GITHUB.md, README.md "Releases").
+# - Push a tag vX.Y.Z whose commit carries the built pkg/dist (only organization owners may create v* tags): `build`
+#   tests the committed package, packs the .crate and the npm tarball and runs the publication dry runs, without any
+#   publishing credential; `release` attaches both to a GitHub release; `publish` (environment `release`: tags v*, the
+#   owner's approval; repository variable PUBLISH_ENABLED; secrets CARGO_REGISTRY_TOKEN and NPM_TOKEN of the
+#   environment) publishes them. `publish` installs nothing and runs no code of the repository: npm publishes the
+#   tarball of `build` after comparing it with `npm pack --ignore-scripts` of the tag, and `cargo publish --no-verify`
+#   uploads the crate packaged from the tag after checking that it is the crate `build` tested (no build script or
+#   macro runs).
+# - Run the workflow by hand with a version to prepare a release: it builds pkg/dist from main, tests it and uploads
+#   it as the artifact pkg-dist; commit it, tag the commit and push the tag (a workflow token cannot create v* tags).
+# Gated by CI_ENABLED.
 name: Release
 
 on:
@@ -26,25 +30,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
-    name: Release
+  build:
+    name: Build and test
     if: ${{ vars.CI_ENABLED == 'true' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
-          # Only the manual release pushes (its tag); a pushed tag's run keeps no credentials in .git/config.
-          persist-credentials: ${{ github.event_name == 'workflow_dispatch' }}
+          persist-credentials: false
       - name: Protocol submodule (test vectors)
         env:
           READ_TOKEN: ${{ secrets.TAVRN_READ_PAT }}
         run: |
           if [ -n "$READ_TOKEN" ]; then
-            git -c url."https://x-access-token:${READ_TOKEN}@github.com/just-tavrn/".insteadOf="https://github.com/just-tavrn/" submodule update --init protocol
+            git -c "url.https://x-access-token:${READ_TOKEN}@github.com/just-tavrn/.insteadOf=https://github.com/just-tavrn/" submodule update --init protocol
           else
             git submodule update --init protocol
           fi
@@ -67,15 +69,16 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - name: Build pkg/dist (manual release only; a pushed tag carries its own build)
+        with:
+          save-if: false
+      - name: Build pkg/dist (manual run only; a pushed tag carries its own build)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: ./build-wasm.sh
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No Actions cache for the pnpm store in a release build.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - run: cargo test --locked
       - name: Test the package that is released
@@ -83,41 +86,105 @@ jobs:
           test -f pkg/dist/tavrn_crypto_bg.wasm
           pnpm -r typecheck
           pnpm -r test
-      - name: Commit pkg/dist and push the tag (manual release only)
+      - name: pkg/dist for the release commit (manual run)
         if: ${{ github.event_name == 'workflow_dispatch' }}
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898341+github-actions[bot]@users.noreply.github.com"
-          git add -f pkg/dist
-          git diff --cached --quiet || git commit -m "release v$VERSION: built pkg/dist"
-          git tag "v$VERSION"
-          git push origin "v$VERSION"
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pkg-dist
+          path: pkg/dist/
+          retention-days: 7
       - name: Package (crate and npm tarball)
+        if: ${{ github.event_name == 'push' }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          mkdir -p release
           cargo package --locked --allow-dirty
-          cp "${CARGO_TARGET_DIR:-target}/package/tavrn-crypto-$VERSION.crate" .
-          (cd pkg && npm pack --pack-destination ..)
-          ls -l ./*.crate ./*.tgz
+          cp "${CARGO_TARGET_DIR:-target}/package/tavrn-crypto-$VERSION.crate" release/
+          (cd pkg && npm pack --pack-destination ../release)
+          ls -l release
       - name: Publication dry runs
+        if: ${{ github.event_name == 'push' }}
         run: |
           cargo publish --dry-run --locked --allow-dirty
           cd pkg && npm publish --dry-run --access public
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ github.event_name == 'push' }}
+        with:
+          name: release-packages
+          path: release/
+          retention-days: 7
+
+  release:
+    name: GitHub release
+    needs: build
+    if: ${{ vars.CI_ENABLED == 'true' && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packages
+          path: release
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "v$VERSION" --generate-notes \
-            --verify-tag ./*.crate ./*.tgz
-      - name: Publish to crates.io and npm
-        if: ${{ vars.PUBLISH_ENABLED == 'true' }}
+            --verify-tag release/*.crate release/*.tgz
+
+  publish:
+    name: Publish to crates.io and npm
+    needs: [build, release]
+    if: ${{ vars.CI_ENABLED == 'true' && github.event_name == 'push' && vars.PUBLISH_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # The tag's sources for `cargo publish` only (crates.io takes no prebuilt .crate); no submodule, no install.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packages
+          path: "${{ runner.temp }}/release"
+      - name: The npm tarball to publish holds the tag's files
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: |
+          # pkg/dist is committed on the tag: npm pack without scripts must give the same files.
+          mkdir -p "$RUNNER_TEMP/npm-tag" "$RUNNER_TEMP/npm-a" "$RUNNER_TEMP/npm-b"
+          (cd pkg && npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/npm-tag" >/dev/null)
+          tar -xzf "$RELEASE_DIR/tavrn-crypto-$VERSION.tgz" -C "$RUNNER_TEMP/npm-a"
+          tar -xzf "$RUNNER_TEMP/npm-tag/tavrn-crypto-$VERSION.tgz" -C "$RUNNER_TEMP/npm-b"
+          diff -r "$RUNNER_TEMP/npm-a" "$RUNNER_TEMP/npm-b"
+      - name: The crate to publish is the one the build tested
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: |
+          # --no-verify: packaging only, no build script or proc macro runs in this job.
+          cargo package --no-verify --locked
+          mkdir -p "$RUNNER_TEMP/built" "$RUNNER_TEMP/tested"
+          tar -xzf "target/package/tavrn-crypto-$VERSION.crate" -C "$RUNNER_TEMP/built"
+          tar -xzf "$RELEASE_DIR/tavrn-crypto-$VERSION.crate" -C "$RUNNER_TEMP/tested"
+          diff -r --exclude=.cargo_vcs_info.json "$RUNNER_TEMP/tested" "$RUNNER_TEMP/built"
+      - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_DIR: ${{ runner.temp }}/release
         run: |
-          cargo publish --locked --allow-dirty
-          cd pkg && npm publish --provenance --access public
+          cargo publish --no-verify --locked
+          npm publish "$RELEASE_DIR"/tavrn-crypto-"$VERSION".tgz --provenance --access public

@@ -74,7 +74,7 @@ honors `CARGO_TARGET_DIR` and maps local paths out of the module.
 | `Device::{generate, from_secret, secret, identity, public_key, credential_with_key, attest}` | per-device Ed25519 key = MLS signature key |
 | `Client::new(device)`, `export_state`, `import_state` | MLS client of one device; state is one secret byte string |
 | `create_key_package`, `create_group`, `join_by_external_commit`, `join_by_welcome` | key packages and joining |
-| `add_members`, `remove_members`, `self_update` → `CommitOutput { commit, welcome, group_info, epoch }` | commits (pending until merged) |
+| `add_members`, `remove_members`, `remove_leaves`, `self_update` → `CommitOutput { commit, welcome, group_info, epoch }` | commits (pending until merged) |
 | `merge_pending_commit`, `discard_pending_commit` | after the node accepted / rejected the commit |
 | `process_handshake` → `HandshakeOutcome` | incoming commits in epoch order |
 | `current_epoch`, `roster`, `has_group`, `delete_group` | group state (roster for ghost detection) |
@@ -193,8 +193,8 @@ The node, tavrn-js and tavrn-web pin the same commit of `main` (a tag works the 
 `#v0.1.0&path:pkg`).
 
 For the npm side the built `pkg/dist/` is committed, so consumers need no Rust toolchain. For now it is
-built locally and committed on `main` and on every release tag; once the CI runs, the release workflow
-builds it and `main` stops carrying it.
+built and committed on `main` and on every release tag (locally, or by a manual run of the release workflow, whose
+artifact `pkg-dist` is then committed); once the packages are published, `main` stops carrying it.
 
 ## Licensing
 

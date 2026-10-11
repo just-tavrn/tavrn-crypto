@@ -21,3 +21,23 @@ First public release, published to crates.io and npm.
 - **Sealed boxes**: write-only webhooks into encrypted channels (strict inbox-key signatures) and history shares of
   format 2, sealed to the share key every device derives next to its device key.
 - **Test vectors** of the protocol checked natively and through the WebAssembly package.
+
+### Security
+
+### Security
+
+- A member commit whose update path gives the committer's leaf another identity is refused by the delivery-service
+  checks and by clients (a leaf never changes its identity).
+- The delivery-service checks refuse a commit after which two leaves share a signature key (an external rejoin must
+  replace the device's old leaf).
+- `CommitSummary::removed_leaves` reports the signature key of every removed leaf, so a node can tell a leaf whose
+  key does not match the device it names.
+- `Client::remove_leaves` (WebAssembly: `removeLeaves`) removes leaves by identity and signature key, so a client
+  can remove exactly the leaf whose key does not match the device it names, also when the genuine leaf is present.
+- `Client::remove_members` refuses an identity that names several leaves (`invalid_input`): such leaves are removed
+  by key with `remove_leaves`.
+- The crates.io and npm tokens and the provenance permission live only in a publish job of a protected `release`
+  environment, which installs and builds nothing and publishes the packages the credential-free build job tested.
+- The release workflow no longer pushes tags; only organization owners create release tags.
+- The publication check prints only file and line of a private match, never the matching text.
+
