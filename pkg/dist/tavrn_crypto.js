@@ -137,8 +137,9 @@ export class Client {
         }
     }
     /**
-     * Decrypts and verifies `content`. Pass `devicePublicKey` (from the verified attestation)
-     * when the author device is no longer in the roster.
+     * Decrypts and verifies `content`. Pass `devicePublicKey` (from the verified attestation, ENCRYPTION.md §3.3)
+     * whenever it is known: a leaf of the device in the local group with another key then fails with
+     * `unknown_sender`. Without it the key of the device's leaf is used.
      * @param {string} conversation
      * @param {string} author
      * @param {string} device_id
@@ -253,6 +254,31 @@ export class Client {
         }
     }
     /**
+     * Encrypts a JSON content object; returns the `content` value with the epoch it was encrypted for.
+     * @param {string} conversation
+     * @param {string} json
+     * @returns {EncryptedContent}
+     */
+    encryptContentWithEpoch(conversation, json) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            const ptr0 = passStringToWasm0(conversation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passStringToWasm0(json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+            const len1 = WASM_VECTOR_LEN;
+            wasm.client_encryptContentWithEpoch(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
+            if (r2) {
+                throw takeObject(r1);
+            }
+            return EncryptedContent.__wrap(r0);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Encrypts a JSON content object; returns the base64url `content` value.
      * @param {string} conversation
      * @param {string} json
@@ -327,9 +353,7 @@ export class Client {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passStringToWasm0(conversation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passArray8ToWasm0(backup_key, wasm.__wbindgen_export);
-            const len1 = WASM_VECTOR_LEN;
-            wasm.client_exportBackup(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1);
+            wasm.client_exportBackup(retptr, this.__wbg_ptr, ptr0, len0, addBorrowedObject(backup_key));
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -337,11 +361,12 @@ export class Client {
             if (r3) {
                 throw takeObject(r2);
             }
-            var v3 = getArrayU8FromWasm0(r0, r1).slice();
+            var v2 = getArrayU8FromWasm0(r0, r1).slice();
             wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v3;
+            return v2;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
+            heap[stack_pointer++] = undefined;
         }
     }
     /**
@@ -358,19 +383,16 @@ export class Client {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-            if (r3) {
-                throw takeObject(r2);
+            if (r2) {
+                throw takeObject(r1);
             }
-            var v2 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v2;
+            return takeObject(r0);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
     }
     /**
-     * Serializes the whole client state (secret!).
+     * Serializes the whole client state (secret! wipe it after storing).
      * @returns {Uint8Array}
      */
     exportState() {
@@ -380,13 +402,10 @@ export class Client {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-            if (r3) {
-                throw takeObject(r2);
+            if (r2) {
+                throw takeObject(r1);
             }
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
+            return takeObject(r0);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
@@ -407,13 +426,10 @@ export class Client {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-            if (r3) {
-                throw takeObject(r2);
+            if (r2) {
+                throw takeObject(r1);
             }
-            var v2 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v2;
+            return takeObject(r0);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
@@ -460,11 +476,9 @@ export class Client {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passStringToWasm0(conversation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passArray8ToWasm0(backup_key, wasm.__wbindgen_export);
+            const ptr1 = passArray8ToWasm0(blob, wasm.__wbindgen_export);
             const len1 = WASM_VECTOR_LEN;
-            const ptr2 = passArray8ToWasm0(blob, wasm.__wbindgen_export);
-            const len2 = WASM_VECTOR_LEN;
-            wasm.client_importBackup(retptr, this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2);
+            wasm.client_importBackup(retptr, this.__wbg_ptr, ptr0, len0, addBorrowedObject(backup_key), ptr1, len1);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -474,6 +488,7 @@ export class Client {
             return r0 >>> 0;
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
+            heap[stack_pointer++] = undefined;
         }
     }
     /**
@@ -486,9 +501,7 @@ export class Client {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
             const ptr0 = passStringToWasm0(conversation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
             const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passArray8ToWasm0(key, wasm.__wbindgen_export);
-            const len1 = WASM_VECTOR_LEN;
-            wasm.client_importEpochKey(retptr, this.__wbg_ptr, ptr0, len0, epoch, ptr1, len1);
+            wasm.client_importEpochKey(retptr, this.__wbg_ptr, ptr0, len0, epoch, addBorrowedObject(key));
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             if (r1) {
@@ -496,19 +509,19 @@ export class Client {
             }
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
+            heap[stack_pointer++] = undefined;
         }
     }
     /**
-     * Restores a client from `exportState()` bytes.
+     * Restores a client from `exportState()` bytes (wipe them afterwards). Every group is loaded once:
+     * `state_malformed` for a state whose groups do not load.
      * @param {Uint8Array} state
      * @returns {Client}
      */
     static importState(state) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArray8ToWasm0(state, wasm.__wbindgen_export);
-            const len0 = WASM_VECTOR_LEN;
-            wasm.client_importState(retptr, ptr0, len0);
+            wasm.client_importState(retptr, addBorrowedObject(state));
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -518,6 +531,7 @@ export class Client {
             return Client.__wrap(r0);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
+            heap[stack_pointer++] = undefined;
         }
     }
     /**
@@ -682,13 +696,10 @@ export class Client {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-            if (r3) {
-                throw takeObject(r2);
+            if (r2) {
+                throw takeObject(r1);
             }
-            var v2 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v2;
+            return takeObject(r0);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
@@ -906,7 +917,7 @@ export class Client {
 if (Symbol.dispose) Client.prototype[Symbol.dispose] = Client.prototype.free;
 
 /**
- * Messages produced by a commit; see [`mls::CommitOutput`].
+ * Messages produced by a commit; see [`mls::CommitOutput`]. Each read of a property copies the bytes once.
  */
 export class CommitOutput {
     static __wrap(ptr) {
@@ -929,92 +940,95 @@ export class CommitOutput {
      * @returns {Uint8Array}
      */
     get commit() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.__wbg_get_commitoutput_commit(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
+        const ret = wasm.commitoutput_commit(this.__wbg_ptr);
+        return takeObject(ret);
     }
     /**
      * @returns {number}
      */
     get epoch() {
-        const ret = wasm.__wbg_get_commitoutput_epoch(this.__wbg_ptr);
+        const ret = wasm.commitoutput_epoch(this.__wbg_ptr);
         return ret;
     }
     /**
      * @returns {Uint8Array}
      */
     get groupInfo() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.__wbg_get_commitoutput_groupInfo(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
+        const ret = wasm.commitoutput_groupInfo(this.__wbg_ptr);
+        return takeObject(ret);
     }
     /**
      * @returns {Uint8Array | undefined}
      */
     get welcome() {
+        const ret = wasm.commitoutput_welcome(this.__wbg_ptr);
+        return takeObject(ret);
+    }
+}
+if (Symbol.dispose) CommitOutput.prototype[Symbol.dispose] = CommitOutput.prototype.free;
+
+/**
+ * A content value with the epoch it was encrypted for (the envelope's `epoch`).
+ */
+export class EncryptedContent {
+    static __wrap(ptr) {
+        const obj = Object.create(EncryptedContent.prototype);
+        obj.__wbg_ptr = ptr;
+        EncryptedContentFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        EncryptedContentFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_encryptedcontent_free(ptr, 0);
+    }
+    /**
+     * @returns {string}
+     */
+    get content() {
+        let deferred1_0;
+        let deferred1_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.__wbg_get_commitoutput_welcome(retptr, this.__wbg_ptr);
+            wasm.__wbg_get_encryptedcontent_content(retptr, this.__wbg_ptr);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            let v1;
-            if (r0 !== 0) {
-                v1 = getArrayU8FromWasm0(r0, r1).slice();
-                wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            }
-            return v1;
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export4(deferred1_0, deferred1_1, 1);
         }
     }
     /**
-     * @param {Uint8Array} arg0
+     * @returns {number}
      */
-    set commit(arg0) {
-        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
+    get epoch() {
+        const ret = wasm.__wbg_get_encryptedcontent_epoch(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @param {string} arg0
+     */
+    set content(arg0) {
+        const ptr0 = passStringToWasm0(arg0, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_commitoutput_commit(this.__wbg_ptr, ptr0, len0);
+        wasm.__wbg_set_encryptedcontent_content(this.__wbg_ptr, ptr0, len0);
     }
     /**
      * @param {number} arg0
      */
     set epoch(arg0) {
-        wasm.__wbg_set_commitoutput_epoch(this.__wbg_ptr, arg0);
-    }
-    /**
-     * @param {Uint8Array} arg0
-     */
-    set groupInfo(arg0) {
-        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_commitoutput_groupInfo(this.__wbg_ptr, ptr0, len0);
-    }
-    /**
-     * @param {Uint8Array | null} [arg0]
-     */
-    set welcome(arg0) {
-        var ptr0 = isLikeNone(arg0) ? 0 : passArray8ToWasm0(arg0, wasm.__wbindgen_export);
-        var len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_commitoutput_welcome(this.__wbg_ptr, ptr0, len0);
+        wasm.__wbg_set_encryptedcontent_epoch(this.__wbg_ptr, arg0);
     }
 }
-if (Symbol.dispose) CommitOutput.prototype[Symbol.dispose] = CommitOutput.prototype.free;
+if (Symbol.dispose) EncryptedContent.prototype[Symbol.dispose] = EncryptedContent.prototype.free;
 
 /**
  * An encrypted attachment: upload `ciphertext`, put `key`, `nonce`, `sha256` into the content.
@@ -1040,97 +1054,29 @@ export class EncryptedFile {
      * @returns {Uint8Array}
      */
     get ciphertext() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.__wbg_get_encryptedfile_ciphertext(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
+        const ret = wasm.encryptedfile_ciphertext(this.__wbg_ptr);
+        return takeObject(ret);
     }
     /**
      * @returns {Uint8Array}
      */
     get key() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.__wbg_get_encryptedfile_key(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
+        const ret = wasm.encryptedfile_key(this.__wbg_ptr);
+        return takeObject(ret);
     }
     /**
      * @returns {Uint8Array}
      */
     get nonce() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.__wbg_get_encryptedfile_nonce(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
+        const ret = wasm.encryptedfile_nonce(this.__wbg_ptr);
+        return takeObject(ret);
     }
     /**
      * @returns {Uint8Array}
      */
     get sha256() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.__wbg_get_encryptedfile_sha256(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {Uint8Array} arg0
-     */
-    set ciphertext(arg0) {
-        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_encryptedfile_ciphertext(this.__wbg_ptr, ptr0, len0);
-    }
-    /**
-     * @param {Uint8Array} arg0
-     */
-    set key(arg0) {
-        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_encryptedfile_key(this.__wbg_ptr, ptr0, len0);
-    }
-    /**
-     * @param {Uint8Array} arg0
-     */
-    set nonce(arg0) {
-        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_encryptedfile_nonce(this.__wbg_ptr, ptr0, len0);
-    }
-    /**
-     * @param {Uint8Array} arg0
-     */
-    set sha256(arg0) {
-        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_encryptedfile_sha256(this.__wbg_ptr, ptr0, len0);
+        const ret = wasm.encryptedfile_sha256(this.__wbg_ptr);
+        return takeObject(ret);
     }
 }
 if (Symbol.dispose) EncryptedFile.prototype[Symbol.dispose] = EncryptedFile.prototype.free;
@@ -1432,9 +1378,7 @@ export class IdentityKey {
     static fromBytes(bytes) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_export);
-            const len0 = WASM_VECTOR_LEN;
-            wasm.identitykey_fromBytes(retptr, ptr0, len0);
+            wasm.identitykey_fromBytes(retptr, addBorrowedObject(bytes));
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -1444,6 +1388,7 @@ export class IdentityKey {
             return IdentityKey.__wrap(r0);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
+            heap[stack_pointer++] = undefined;
         }
     }
     /**
@@ -1497,17 +1442,8 @@ export class IdentityKey {
      * @returns {Uint8Array}
      */
     toBytes() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.identitykey_toBytes(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
+        const ret = wasm.identitykey_toBytes(this.__wbg_ptr);
+        return takeObject(ret);
     }
 }
 if (Symbol.dispose) IdentityKey.prototype[Symbol.dispose] = IdentityKey.prototype.free;
@@ -1639,17 +1575,8 @@ export class MasterSecret {
      * @returns {Uint8Array}
      */
     backupKey() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.mastersecret_backupKey(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
+        const ret = wasm.mastersecret_backupKey(this.__wbg_ptr);
+        return takeObject(ret);
     }
     /**
      * Restores from the 32 raw bytes (local secure storage only).
@@ -1659,9 +1586,7 @@ export class MasterSecret {
     static fromBytes(bytes) {
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_export);
-            const len0 = WASM_VECTOR_LEN;
-            wasm.mastersecret_fromBytes(retptr, ptr0, len0);
+            wasm.mastersecret_fromBytes(retptr, addBorrowedObject(bytes));
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -1671,6 +1596,7 @@ export class MasterSecret {
             return MasterSecret.__wrap(r0);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
+            heap[stack_pointer++] = undefined;
         }
     }
     /**
@@ -1745,13 +1671,10 @@ export class MasterSecret {
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-            var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-            if (r3) {
-                throw takeObject(r2);
+            if (r2) {
+                throw takeObject(r1);
             }
-            var v2 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v2;
+            return takeObject(r0);
         } finally {
             wasm.__wbindgen_add_to_stack_pointer(16);
         }
@@ -1761,17 +1684,8 @@ export class MasterSecret {
      * @returns {Uint8Array}
      */
     toBytes() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.mastersecret_toBytes(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
+        const ret = wasm.mastersecret_toBytes(this.__wbg_ptr);
+        return takeObject(ret);
     }
     /**
      * Text of the key file `tavrn-key-<username>.txt` for `account` (`user@domain`).
@@ -1952,17 +1866,8 @@ export class RecoveryKey {
      * @returns {Uint8Array}
      */
     wrappingKey() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.recoverykey_wrappingKey(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
+        const ret = wasm.recoverykey_wrappingKey(this.__wbg_ptr);
+        return takeObject(ret);
     }
 }
 if (Symbol.dispose) RecoveryKey.prototype[Symbol.dispose] = RecoveryKey.prototype.free;
@@ -1995,7 +1900,7 @@ export class RosterEntry {
         let deferred1_1;
         try {
             const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.__wbg_get_rosterentry_identity(retptr, this.__wbg_ptr);
+            wasm.rosterentry_identity(retptr, this.__wbg_ptr);
             var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
             var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
             deferred1_0 = r0;
@@ -2010,33 +1915,8 @@ export class RosterEntry {
      * @returns {Uint8Array}
      */
     get signatureKey() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.__wbg_get_rosterentry_signatureKey(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU8FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export4(r0, r1 * 1, 1);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * @param {string} arg0
-     */
-    set identity(arg0) {
-        const ptr0 = passStringToWasm0(arg0, wasm.__wbindgen_export, wasm.__wbindgen_export2);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_rosterentry_identity(this.__wbg_ptr, ptr0, len0);
-    }
-    /**
-     * @param {Uint8Array} arg0
-     */
-    set signatureKey(arg0) {
-        const ptr0 = passArray8ToWasm0(arg0, wasm.__wbindgen_export);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_rosterentry_signatureKey(this.__wbg_ptr, ptr0, len0);
+        const ret = wasm.rosterentry_signatureKey(this.__wbg_ptr);
+        return takeObject(ret);
     }
 }
 if (Symbol.dispose) RosterEntry.prototype[Symbol.dispose] = RosterEntry.prototype.free;
@@ -2383,6 +2263,31 @@ export function contentEpoch(content_b64) {
 }
 
 /**
+ * The keys that lead to `current` through valid consecutive statements of `chain` (JSON array, oldest first),
+ * `current` included; every statement is verified at most once. Only `current` for a malformed chain.
+ * @param {string} chain_json
+ * @param {string} current
+ * @returns {string[]}
+ */
+export function continuityKeys(chain_json, current) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(chain_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(current, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.continuityKeys(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        var v3 = getArrayJsValueFromWasm0(r0, r1);
+        wasm.__wbindgen_export4(r0, r1 * 4, 4);
+        return v3;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
  * Is `to` reachable from `from` through valid consecutive statements of `chain` (JSON array, oldest first)?
  * @param {string} chain_json
  * @param {string} from
@@ -2412,39 +2317,38 @@ export function continuityReaches(chain_json, from, to) {
  * @returns {string}
  */
 export function decryptContentWithKey(key, conversation, author, device_id, content, device_public_key) {
-    let deferred8_0;
-    let deferred8_1;
+    let deferred7_0;
+    let deferred7_1;
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passArray8ToWasm0(key, wasm.__wbindgen_export);
+        const ptr0 = passStringToWasm0(conversation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(conversation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(author, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(author, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr2 = passStringToWasm0(device_id, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passStringToWasm0(device_id, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr3 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len3 = WASM_VECTOR_LEN;
-        const ptr4 = passStringToWasm0(content, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr4 = passArray8ToWasm0(device_public_key, wasm.__wbindgen_export);
         const len4 = WASM_VECTOR_LEN;
-        const ptr5 = passArray8ToWasm0(device_public_key, wasm.__wbindgen_export);
-        const len5 = WASM_VECTOR_LEN;
-        wasm.decryptContentWithKey(retptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5);
+        wasm.decryptContentWithKey(retptr, addBorrowedObject(key), ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
         var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-        var ptr7 = r0;
-        var len7 = r1;
+        var ptr6 = r0;
+        var len6 = r1;
         if (r3) {
-            ptr7 = 0; len7 = 0;
+            ptr6 = 0; len6 = 0;
             throw takeObject(r2);
         }
-        deferred8_0 = ptr7;
-        deferred8_1 = len7;
-        return getStringFromWasm0(ptr7, len7);
+        deferred7_0 = ptr6;
+        deferred7_1 = len6;
+        return getStringFromWasm0(ptr6, len6);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
-        wasm.__wbindgen_export4(deferred8_0, deferred8_1, 1);
+        heap[stack_pointer++] = undefined;
+        wasm.__wbindgen_export4(deferred7_0, deferred7_1, 1);
     }
 }
 
@@ -2461,13 +2365,11 @@ export function decryptFile(ciphertext, key, nonce, sha256) {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         const ptr0 = passArray8ToWasm0(ciphertext, wasm.__wbindgen_export);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passArray8ToWasm0(key, wasm.__wbindgen_export);
+        const ptr1 = passArray8ToWasm0(nonce, wasm.__wbindgen_export);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passArray8ToWasm0(nonce, wasm.__wbindgen_export);
+        const ptr2 = passArray8ToWasm0(sha256, wasm.__wbindgen_export);
         const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passArray8ToWasm0(sha256, wasm.__wbindgen_export);
-        const len3 = WASM_VECTOR_LEN;
-        wasm.decryptFile(retptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        wasm.decryptFile(retptr, ptr0, len0, addBorrowedObject(key), ptr1, len1, ptr2, len2);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -2475,11 +2377,12 @@ export function decryptFile(ciphertext, key, nonce, sha256) {
         if (r3) {
             throw takeObject(r2);
         }
-        var v5 = getArrayU8FromWasm0(r0, r1).slice();
+        var v4 = getArrayU8FromWasm0(r0, r1).slice();
         wasm.__wbindgen_export4(r0, r1 * 1, 1);
-        return v5;
+        return v4;
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
+        heap[stack_pointer++] = undefined;
     }
 }
 
@@ -2494,15 +2397,13 @@ export function decryptFile(ciphertext, key, nonce, sha256) {
 export function decryptScene(backup_key, scene_id, part, blob) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passArray8ToWasm0(backup_key, wasm.__wbindgen_export);
+        const ptr0 = passStringToWasm0(scene_id, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(scene_id, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(part, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(part, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr2 = passArray8ToWasm0(blob, wasm.__wbindgen_export);
         const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passArray8ToWasm0(blob, wasm.__wbindgen_export);
-        const len3 = WASM_VECTOR_LEN;
-        wasm.decryptScene(retptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        wasm.decryptScene(retptr, addBorrowedObject(backup_key), ptr0, len0, ptr1, len1, ptr2, len2);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -2510,11 +2411,12 @@ export function decryptScene(backup_key, scene_id, part, blob) {
         if (r3) {
             throw takeObject(r2);
         }
-        var v5 = getArrayU8FromWasm0(r0, r1).slice();
+        var v4 = getArrayU8FromWasm0(r0, r1).slice();
         wasm.__wbindgen_export4(r0, r1 * 1, 1);
-        return v5;
+        return v4;
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
+        heap[stack_pointer++] = undefined;
     }
 }
 
@@ -2527,21 +2429,17 @@ export function decryptScene(backup_key, scene_id, part, blob) {
 export function deviceShareSecretKey(device_secret_key) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passArray8ToWasm0(device_secret_key, wasm.__wbindgen_export);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.deviceShareSecretKey(retptr, ptr0, len0);
+        wasm.deviceShareSecretKey(retptr, addBorrowedObject(device_secret_key));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-        if (r3) {
-            throw takeObject(r2);
+        if (r2) {
+            throw takeObject(r1);
         }
-        var v2 = getArrayU8FromWasm0(r0, r1).slice();
-        wasm.__wbindgen_export4(r0, r1 * 1, 1);
-        return v2;
+        return takeObject(r0);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
+        heap[stack_pointer++] = undefined;
     }
 }
 
@@ -2580,15 +2478,13 @@ export function encryptFile(plaintext) {
 export function encryptScene(backup_key, scene_id, part, plaintext) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passArray8ToWasm0(backup_key, wasm.__wbindgen_export);
+        const ptr0 = passStringToWasm0(scene_id, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(scene_id, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(part, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(part, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr2 = passArray8ToWasm0(plaintext, wasm.__wbindgen_export);
         const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passArray8ToWasm0(plaintext, wasm.__wbindgen_export);
-        const len3 = WASM_VECTOR_LEN;
-        wasm.encryptScene(retptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        wasm.encryptScene(retptr, addBorrowedObject(backup_key), ptr0, len0, ptr1, len1, ptr2, len2);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -2596,11 +2492,12 @@ export function encryptScene(backup_key, scene_id, part, plaintext) {
         if (r3) {
             throw takeObject(r2);
         }
-        var v5 = getArrayU8FromWasm0(r0, r1).slice();
+        var v4 = getArrayU8FromWasm0(r0, r1).slice();
         wasm.__wbindgen_export4(r0, r1 * 1, 1);
-        return v5;
+        return v4;
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
+        heap[stack_pointer++] = undefined;
     }
 }
 
@@ -2640,23 +2537,19 @@ export function inboxPublicKey(content_key) {
 export function openShareBox(share_secret_key, sealed) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passArray8ToWasm0(share_secret_key, wasm.__wbindgen_export);
+        const ptr0 = passArray8ToWasm0(sealed, wasm.__wbindgen_export);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passArray8ToWasm0(sealed, wasm.__wbindgen_export);
-        const len1 = WASM_VECTOR_LEN;
-        wasm.openShareBox(retptr, ptr0, len0, ptr1, len1);
+        wasm.openShareBox(retptr, addBorrowedObject(share_secret_key), ptr0, len0);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-        if (r3) {
-            throw takeObject(r2);
+        if (r2) {
+            throw takeObject(r1);
         }
-        var v3 = getArrayU8FromWasm0(r0, r1).slice();
-        wasm.__wbindgen_export4(r0, r1 * 1, 1);
-        return v3;
+        return takeObject(r0);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
+        heap[stack_pointer++] = undefined;
     }
 }
 
@@ -2723,21 +2616,17 @@ export function passkeyMethod(credential_id) {
 export function passkeyWrappingKey(prf_output) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passArray8ToWasm0(prf_output, wasm.__wbindgen_export);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.passkeyWrappingKey(retptr, ptr0, len0);
+        wasm.passkeyWrappingKey(retptr, addBorrowedObject(prf_output));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
-        var r3 = getDataViewMemory0().getInt32(retptr + 4 * 3, true);
-        if (r3) {
-            throw takeObject(r2);
+        if (r2) {
+            throw takeObject(r1);
         }
-        var v2 = getArrayU8FromWasm0(r0, r1).slice();
-        wasm.__wbindgen_export4(r0, r1 * 1, 1);
-        return v2;
+        return takeObject(r0);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
+        heap[stack_pointer++] = undefined;
     }
 }
 
@@ -2866,9 +2755,7 @@ export function secretStoragePrfInput() {
 export function sharePublicKey(share_secret_key) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        const ptr0 = passArray8ToWasm0(share_secret_key, wasm.__wbindgen_export);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.sharePublicKey(retptr, ptr0, len0);
+        wasm.sharePublicKey(retptr, addBorrowedObject(share_secret_key));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -2876,11 +2763,12 @@ export function sharePublicKey(share_secret_key) {
         if (r3) {
             throw takeObject(r2);
         }
-        var v2 = getArrayU8FromWasm0(r0, r1).slice();
+        var v1 = getArrayU8FromWasm0(r0, r1).slice();
         wasm.__wbindgen_export4(r0, r1 * 1, 1);
-        return v2;
+        return v1;
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
+        heap[stack_pointer++] = undefined;
     }
 }
 
@@ -2962,13 +2850,11 @@ export function unwrapMasterSecret(wrapped, wrapping_key, user_address, method) 
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         const ptr0 = passArray8ToWasm0(wrapped, wasm.__wbindgen_export);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passArray8ToWasm0(wrapping_key, wasm.__wbindgen_export);
+        const ptr1 = passStringToWasm0(user_address, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(user_address, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr2 = passStringToWasm0(method, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len2 = WASM_VECTOR_LEN;
-        const ptr3 = passStringToWasm0(method, wasm.__wbindgen_export, wasm.__wbindgen_export2);
-        const len3 = WASM_VECTOR_LEN;
-        wasm.unwrapMasterSecret(retptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        wasm.unwrapMasterSecret(retptr, ptr0, len0, addBorrowedObject(wrapping_key), ptr1, len1, ptr2, len2);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -2978,6 +2864,7 @@ export function unwrapMasterSecret(wrapped, wrapping_key, user_address, method) 
         return MasterSecret.__wrap(r0);
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
+        heap[stack_pointer++] = undefined;
     }
 }
 
@@ -3194,13 +3081,11 @@ export function wrapMasterSecret(master, wrapping_key, user_address, method) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
         _assertClass(master, MasterSecret);
-        const ptr0 = passArray8ToWasm0(wrapping_key, wasm.__wbindgen_export);
+        const ptr0 = passStringToWasm0(user_address, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(user_address, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const ptr1 = passStringToWasm0(method, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passStringToWasm0(method, wasm.__wbindgen_export, wasm.__wbindgen_export2);
-        const len2 = WASM_VECTOR_LEN;
-        wasm.wrapMasterSecret(retptr, master.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2);
+        wasm.wrapMasterSecret(retptr, master.__wbg_ptr, addBorrowedObject(wrapping_key), ptr0, len0, ptr1, len1);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         var r2 = getDataViewMemory0().getInt32(retptr + 4 * 2, true);
@@ -3208,11 +3093,12 @@ export function wrapMasterSecret(master, wrapping_key, user_address, method) {
         if (r3) {
             throw takeObject(r2);
         }
-        var v4 = getArrayU8FromWasm0(r0, r1).slice();
+        var v3 = getArrayU8FromWasm0(r0, r1).slice();
         wasm.__wbindgen_export4(r0, r1 * 1, 1);
-        return v4;
+        return v3;
     } finally {
         wasm.__wbindgen_add_to_stack_pointer(16);
+        heap[stack_pointer++] = undefined;
     }
 }
 function __wbg_get_imports() {
@@ -3363,6 +3249,9 @@ const ClientFinalization = (typeof FinalizationRegistry === 'undefined')
 const CommitOutputFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_commitoutput_free(ptr, 1));
+const EncryptedContentFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_encryptedcontent_free(ptr, 1));
 const EncryptedFileFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_encryptedfile_free(ptr, 1));
@@ -3410,6 +3299,12 @@ function _assertClass(instance, klass) {
     if (!(instance instanceof klass)) {
         throw new Error(`expected instance of ${klass.name}`);
     }
+}
+
+function addBorrowedObject(obj) {
+    if (stack_pointer == 1) throw new Error('out of js stack');
+    heap[--stack_pointer] = obj;
+    return stack_pointer;
 }
 
 function dropObject(idx) {
@@ -3538,6 +3433,8 @@ function passStringToWasm0(arg, malloc, realloc) {
     WASM_VECTOR_LEN = offset;
     return ptr;
 }
+
+let stack_pointer = 1024;
 
 function takeObject(idx) {
     const ret = getObject(idx);

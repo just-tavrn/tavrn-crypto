@@ -7,9 +7,13 @@ import {
   Client,
   MasterSecret,
   RecoveryKey,
+  IdentityKey,
   canonicalJson,
   capability,
   contentEpoch,
+  continuityKeys,
+  continuityReaches,
+  signContinuity,
   decryptContentWithKey,
   decryptFile,
   decryptScene,
@@ -226,6 +230,35 @@ describe("@tavrn/crypto (wasm)", () => {
     tampered[0] ^= 1;
     expect(errorName(() => decryptFile(tampered, f.key, f.nonce, f.sha256))).toBe("decryption_failed");
     expect(errorName(() => decryptFile(f.ciphertext, f.key.slice(1), f.nonce, f.sha256))).toBe("invalid_input");
+  });
+
+  it("decrypts in one call: the attested key must match the author's leaf; content reports its epoch", () => {
+    const alice = Client.create(ALICE, DEV_A);
+    const bob = Client.create(BOB, DEV_B);
+    alice.createGroup(CONV);
+    const add = alice.addMembers(CONV, [bob.createKeyPackage()]);
+    alice.mergePendingCommit(CONV);
+    bob.joinByWelcome(add.welcome!).free();
+    add.free();
+    const out = alice.encryptContentWithEpoch(CONV, MSG);
+    expect(out.epoch).toBe(1);
+    expect(contentEpoch(out.content)).toBe(1);
+    expect(bob.decryptContent(CONV, ALICE, DEV_A, out.content, alice.devicePublicKey)).toBe(MSG);
+    expect(errorName(() => bob.decryptContent(CONV, ALICE, DEV_A, out.content, bob.devicePublicKey))).toBe("unknown_sender");
+    // A state exported after cached reads imports with the same groups.
+    const copy = Client.importState(bob.exportState());
+    expect(copy.roster(CONV).map((e) => e.identity)).toEqual(bob.roster(CONV).map((e) => e.identity));
+    expect(copy.decryptContent(CONV, ALICE, DEV_A, out.content, alice.devicePublicKey)).toBe(MSG);
+    out.free();
+  });
+
+  it("collects the keys of a continuity chain in one call", () => {
+    const keys = [IdentityKey.generate(), IdentityKey.generate(), IdentityKey.generate()];
+    const pk = (k: IdentityKey) => Buffer.from(k.publicKey()).toString("base64url");
+    const chain = JSON.stringify([JSON.parse(signContinuity(keys[0]!, keys[1]!, "2026-10-15T00:00:00Z")), JSON.parse(signContinuity(keys[1]!, keys[2]!, "2026-10-15T01:00:00Z"))]);
+    expect(continuityKeys(chain, pk(keys[2]!)).sort()).toEqual(keys.map(pk).sort());
+    expect(continuityReaches(chain, pk(keys[0]!), pk(keys[2]!))).toBe(true);
+    expect(continuityKeys("not json", pk(keys[2]!))).toEqual([pk(keys[2]!)]);
   });
 
   it("rejects malformed input with errors instead of crashing", () => {

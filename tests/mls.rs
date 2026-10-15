@@ -244,10 +244,10 @@ fn decryption_requires_matching_sender_and_key() {
     assert_eq!(bob.decrypt_content(CONV, ALICE, DEV_C, &c, None), Err(CryptoError::UnknownSender));
     // Bob claims Alice's message as his own: wrong AAD.
     assert_eq!(bob.decrypt_content(CONV, BOB, DEV_B, &c, None), Err(CryptoError::DecryptionFailed));
-    // Wrong explicit key.
+    // Wrong explicit key: Alice's leaf carries another one (§3.3).
     assert_eq!(
         bob.decrypt_content(CONV, ALICE, DEV_A, &c, Some(&bob.device().public_key())),
-        Err(CryptoError::BadSignature)
+        Err(CryptoError::UnknownSender)
     );
     assert_eq!(bob.decrypt_content(CONV2, ALICE, DEV_A, &c, None), Err(CryptoError::UnknownEpoch));
     assert!(bob.decrypt_content(CONV, ALICE, DEV_A, "%%%", None).is_err());
@@ -279,6 +279,136 @@ fn state_export_import_roundtrip() {
     let mut bad_magic = state.to_vec();
     bad_magic[0] = b'X';
     assert_eq!(Client::import_state(&bad_magic).err(), Some(CryptoError::StateMalformed));
+}
+
+/// Rewrites the MLS storage values of an exported state (`TVC1 || str16 || str16 || secret(32) || u32 count ||
+/// (u32 key, u32 value)* || rest`): `edit(key, value)` may change each value.
+fn rewrite_storage(state: &[u8], edit: impl Fn(&[u8], &mut Vec<u8>)) -> Vec<u8> {
+    let u16_at = |i: usize| usize::from(u16::from_be_bytes([state[i], state[i + 1]]));
+    let u32_at = |i: usize| u32::from_be_bytes(state[i..i + 4].try_into().expect("u32")) as usize;
+    let mut i = 4;
+    i += 2 + u16_at(i);
+    i += 2 + u16_at(i);
+    i += 32;
+    let mut out = state[..i].to_vec();
+    let count = u32_at(i);
+    out.extend_from_slice(&state[i..i + 4]);
+    i += 4;
+    for _ in 0..count {
+        let key = &state[i + 4..i + 4 + u32_at(i)];
+        i += 4 + key.len();
+        let mut value = state[i + 4..i + 4 + u32_at(i)].to_vec();
+        i += 4 + value.len();
+        edit(key, &mut value);
+        out.extend_from_slice(&u32::try_from(key.len()).expect("len").to_be_bytes());
+        out.extend_from_slice(key);
+        out.extend_from_slice(&u32::try_from(value.len()).expect("len").to_be_bytes());
+        out.extend_from_slice(&value);
+    }
+    out.extend_from_slice(&state[i..]);
+    out
+}
+
+#[test]
+fn malformed_group_values_are_refused_at_import() {
+    let (_, bob, _) = alice_and_bob();
+    let state = bob.export_state().expect("export");
+    assert_eq!(rewrite_storage(&state, |_, _| {}), state.to_vec(), "the test parser reads the format");
+    // Values OpenMLS would read without error handling: a value of another shape, or no JSON at all, used to
+    // pass the import and panic on first use (a trap in WebAssembly).
+    for (label, value) in [
+        (&b"Tree"[..], &b"{}"[..]),
+        (b"Tree", b"[1,2"),
+        (b"GroupContext", b"null"),
+        (b"InterimTranscriptHash", b"{"),
+        (b"ConfirmationTag", b"7"),
+        (b"GroupState", b"\"x\""),
+    ] {
+        let broken = rewrite_storage(&state, |k, v| {
+            if k.starts_with(label) {
+                *v = value.to_vec();
+            }
+        });
+        assert_ne!(broken, state.to_vec(), "{} is in the state", String::from_utf8_lossy(label));
+        assert_eq!(
+            Client::import_state(&broken).err(),
+            Some(CryptoError::StateMalformed),
+            "{}",
+            String::from_utf8_lossy(label)
+        );
+    }
+    // Values that are not group state still import (they are read with error handling).
+    let restored = Client::import_state(&state).expect("import");
+    assert!(restored.has_group(CONV));
+}
+
+#[test]
+fn cached_groups_and_the_exported_state_stay_the_same() {
+    let (mut alice, mut bob, _) = alice_and_bob();
+    // Every step changes the cached groups; an import of the state exported right after it must equal the client.
+    let check = |c: &Client| {
+        let restored = Client::import_state(&c.export_state().expect("export")).expect("import");
+        assert_eq!(restored.current_epoch(CONV), c.current_epoch(CONV));
+        assert_eq!(restored.roster(CONV), c.roster(CONV));
+        send(&restored, c);
+        send(c, &restored);
+    };
+    check(&alice);
+    check(&bob);
+    let up = bob.self_update(CONV).expect("update");
+    check(&bob); // pending commit
+    bob.merge_pending_commit(CONV).expect("merge");
+    alice.process_handshake(CONV, &up.commit).expect("process");
+    // A refused (stale) commit leaves the group as it was.
+    assert_eq!(alice.process_handshake(CONV, &up.commit).err(), Some(CryptoError::StaleEpoch));
+    check(&alice);
+    check(&bob);
+    let mut carol = client(CAROL, DEV_C);
+    alice.add_members(CONV, &[carol.create_key_package().expect("kp")]).expect("add");
+    alice.discard_pending_commit(CONV).expect("discard");
+    check(&alice);
+    assert_eq!(alice.current_epoch(CONV).ok(), Some(2));
+    let out2 = alice.add_members(CONV, &[carol.create_key_package().expect("kp")]).expect("add");
+    alice.merge_pending_commit(CONV).expect("merge");
+    carol.join_by_welcome(&out2.welcome.expect("welcome")).expect("join");
+    bob.process_handshake(CONV, &out2.commit).expect("process");
+    for c in [&alice, &bob, &carol] {
+        check(c);
+        assert_eq!(c.roster(CONV).expect("roster").len(), 3);
+    }
+    alice.delete_group(CONV).expect("delete");
+    assert!(!alice.has_group(CONV));
+    assert!(!Client::import_state(&alice.export_state().expect("export")).expect("import").has_group(CONV));
+}
+
+#[test]
+fn an_attested_key_must_match_the_leaf_of_the_device() {
+    let (alice, bob, _) = alice_and_bob();
+    let c = alice.encrypt_content(CONV, MSG).expect("encrypt");
+    let alice_key = alice.device().public_key();
+    assert_eq!(bob.decrypt_content(CONV, ALICE, DEV_A, &c, Some(&alice_key)).as_deref(), Ok(MSG));
+    // §3.3: the attested key differs from the device's leaf: unknown sender, before the key or signature count.
+    let other = client(ALICE, DEV_A).device().public_key();
+    assert_eq!(bob.decrypt_content(CONV, ALICE, DEV_A, &c, Some(&other)), Err(CryptoError::UnknownSender));
+    let elsewhere = alice.encrypt_content(CONV, MSG).expect("encrypt");
+    let mut stranger = client(CAROL, DEV_C);
+    // No local group (a history key only): nothing to compare, the signature decides.
+    stranger.import_epoch_key(CONV, 1, &bob.export_epoch_key(CONV, 1).expect("key")).expect("import");
+    assert_eq!(stranger.decrypt_content(CONV, ALICE, DEV_A, &elsewhere, Some(&alice_key)).as_deref(), Ok(MSG));
+    assert_eq!(stranger.decrypt_content(CONV, ALICE, DEV_A, &elsewhere, Some(&other)), Err(CryptoError::BadSignature));
+}
+
+#[test]
+fn encrypted_content_reports_its_epoch() {
+    let (mut alice, mut bob, _) = alice_and_bob();
+    let up = alice.self_update(CONV).expect("update");
+    alice.merge_pending_commit(CONV).expect("merge");
+    bob.process_handshake(CONV, &up.commit).expect("process");
+    let (content, epoch) = alice.encrypt_content_with_epoch(CONV, MSG).expect("encrypt");
+    assert_eq!(epoch, 2);
+    assert_eq!(content_header(&content).expect("header").epoch, epoch);
+    assert_eq!(bob.decrypt_content(CONV, ALICE, DEV_A, &content, None).as_deref(), Ok(MSG));
+    assert_eq!(alice.encrypt_content_with_epoch(CONV2, MSG).err(), Some(CryptoError::UnknownGroup));
 }
 
 #[test]

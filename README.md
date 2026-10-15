@@ -61,7 +61,10 @@ just check       # everything the CI runs
 
 `just wasm` runs `./build-wasm.sh`: `cargo build --target wasm32-unknown-unknown --profile wasm` followed by
 `wasm-bindgen --target web` (it installs the `wasm-bindgen-cli` matching `Cargo.lock` if needed). The script
-honors `CARGO_TARGET_DIR` and maps local paths out of the module.
+honors `CARGO_TARGET_DIR` and maps local paths out of the module. It runs no `wasm-opt`: on this module `-Oz` saves
+11 % of the raw size but makes the gzip size 5 % larger. The module still contains every ciphersuite of the OpenMLS
+RustCrypto provider (it dispatches at run time, so the linker cannot drop them), although tavrn uses only 0x0001;
+leaving them out takes a provider of our own for that ciphersuite (a later step).
 
 ## Rust API (`tavrn_crypto`)
 
@@ -72,13 +75,13 @@ honors `CARGO_TARGET_DIR` and maps local paths out of the module.
 | `secret_storage::{wrap_master_secret, unwrap_master_secret, passkey_wrapping_key, passkey_method, secret_storage_aad, valid_method, PRF_INPUT, METHOD_RECOVERY}` | master secret wrapped for the home node (ENCRYPTION.md §2.4) |
 | `attest_device`, `verify_device_attestation`, `DeviceAttestation` | identity signature over a device key |
 | `Device::{generate, from_secret, secret, identity, public_key, credential_with_key, attest}` | per-device Ed25519 key = MLS signature key |
-| `Client::new(device)`, `export_state`, `import_state` | MLS client of one device; state is one secret byte string |
+| `Client::new(device)`, `export_state`, `import_state` | MLS client of one device; state is one secret byte string (the import loads every group once and refuses a state whose groups do not load); loaded groups stay cached in the client |
 | `create_key_package`, `create_group`, `join_by_external_commit`, `join_by_welcome` | key packages and joining |
 | `add_members`, `remove_members`, `remove_leaves`, `self_update` → `CommitOutput { commit, welcome, group_info, epoch }` | commits (pending until merged) |
 | `merge_pending_commit`, `discard_pending_commit` | after the node accepted / rejected the commit |
 | `process_handshake` → `HandshakeOutcome` | incoming commits in epoch order |
 | `current_epoch`, `roster`, `has_group`, `delete_group` | group state (roster for ghost detection) |
-| `encrypt_content`, `decrypt_content` | message content (per-epoch key + device signature) |
+| `encrypt_content`, `encrypt_content_with_epoch`, `decrypt_content` | message content (per-epoch key + device signature); with the attested device key, `decrypt_content` also checks it against the device's leaf (§3.3) |
 | `export_epoch_key`, `import_epoch_key`, `known_epochs`, `export_backup`, `import_backup` | history and backup |
 | `export_voice_key` | voice frame key of the current epoch (ENCRYPTION.md §5a) |
 | `encrypt_file`, `decrypt_file` | attachments |
@@ -87,7 +90,7 @@ honors `CARGO_TARGET_DIR` and maps local paths out of the module.
 | `inbox_key`, `open_sealed` | the epoch's inbox key of write-only webhooks and opening a sealed post (ENCRYPTION.md §5b) |
 | `Device::{share_secret, share_public_key, share_key_signature}`, `share::{share_secret, share_public_key, share_key_signing_input, verify_share_key, seal_share_key, open_share_box, decrypt_content_with_key}` | device share keys: an X25519 key derived from the device secret (`HKDF`, label `tavrn device share key v1`) and attested by the device key, published with it (ENCRYPTION.md §3.1) |
 | `sealed::{inbox_secret, inbox_public_key, inbox_signing_input, verify_inbox_key, seal, open, open_with_secret}` | libsodium-compatible sealed boxes (`x25519-xsalsa20poly1305-sealedbox`) and the inbox keys of write-only webhooks |
-| `IdentityKey`, `wrap_identity_key`, `unwrap_identity_key`, `sign_continuity`, `verify_continuity`, `continuity_reaches` | identity key rotation with continuity statements (ENCRYPTION.md §9a) |
+| `IdentityKey`, `wrap_identity_key`, `unwrap_identity_key`, `sign_continuity`, `verify_continuity`, `continuity_reaches`, `continuity_keys` | identity key rotation with continuity statements (ENCRYPTION.md §9a); `continuity_keys` lists every key that leads to the current one in one pass |
 | `encrypt_backup`, `decrypt_backup`, `encrypt_scene`, `decrypt_scene` | history backups (§7) and whiteboard scenes (§7a) under the backup key |
 | `device::{login_proof_message, verify_login_proof}` | the device proof at login (ENCRYPTION.md §3.4) |
 | `CAPABILITY` (`e2ee.mls1`), `CONTENT_FORMAT_VERSION` | the capability string and the content format version |

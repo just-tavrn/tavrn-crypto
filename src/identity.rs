@@ -164,11 +164,8 @@ pub fn sign_continuity(old: &IdentityKey, new: &IdentityKey, at: &str) -> Result
 
 fn verifying_key(b64: &str) -> Result<VerifyingKey> {
     let bytes = b64url_decode_array::<32>(b64, "identity key").map_err(|_| CryptoError::BadSignature)?;
-    let key = VerifyingKey::from_bytes(&bytes).map_err(|_| CryptoError::BadSignature)?;
-    if key.is_weak() {
-        return Err(CryptoError::BadSignature);
-    }
-    Ok(key)
+    // Small-order (weak) keys are refused by `verify_strict`.
+    VerifyingKey::from_bytes(&bytes).map_err(|_| CryptoError::BadSignature)
 }
 
 /// Checks both signatures of a statement (strict Ed25519, distinct non-weak keys).
@@ -207,6 +204,33 @@ pub fn continuity_reaches(chain: &[ContinuityStatement], from: &str, to: &str) -
         }
     }
     false
+}
+
+/// The keys that lead to `current` through valid, consecutive statements of `chain` (oldest first), `current`
+/// included: for each statement's `old_key`, [`continuity_reaches`]`(chain, old_key, current)`. One walk from the
+/// newest statement back, so every statement is verified at most once (O(n) instead of one walk per key); a chain
+/// longer than [`MAX_CHAIN`] yields only `current`, as [`continuity_reaches`] does.
+pub fn continuity_keys(chain: &[ContinuityStatement], current: &str) -> Vec<String> {
+    let mut out = vec![current.to_owned()];
+    if chain.len() > MAX_CHAIN {
+        return out;
+    }
+    // reaches[i]: the walk that starts at statement i reaches `current`.
+    let mut reaches = vec![false; chain.len()];
+    for i in (0..chain.len()).rev() {
+        let s = &chain[i];
+        let onward =
+            s.new_key == current || (i + 1 < chain.len() && chain[i + 1].old_key == s.new_key && reaches[i + 1]);
+        reaches[i] = onward && verify_continuity(s).is_ok();
+    }
+    // A walk from a key starts at the first statement whose `old_key` is that key.
+    let mut seen = std::collections::HashSet::new();
+    for (i, s) in chain.iter().enumerate() {
+        if seen.insert(s.old_key.as_str()) && reaches[i] && s.old_key != current {
+            out.push(s.old_key.clone());
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -328,5 +352,58 @@ mod tests {
         broken[1].sig_new = broken[0].sig_new.clone();
         assert!(!continuity_reaches(&broken, &pk(&k0), &pk(&k3)));
         assert!(continuity_reaches(&broken, &pk(&k2), &pk(&k3)), "later links stand alone");
+    }
+
+    /// `continuity_keys` is the set of every `old_key` that `continuity_reaches` the current key, plus the current key.
+    fn keys_by_walks(chain: &[ContinuityStatement], current: &str) -> std::collections::BTreeSet<String> {
+        let mut out: std::collections::BTreeSet<String> =
+            chain.iter().map(|s| s.old_key.clone()).filter(|k| continuity_reaches(chain, k, current)).collect();
+        out.insert(current.to_owned());
+        out
+    }
+
+    #[test]
+    fn continuity_keys_equal_one_walk_per_key() {
+        let keys: Vec<IdentityKey> = (0..6).map(|_| IdentityKey::generate().expect("rng")).collect();
+        let pk = |i: usize| b64url_encode(&keys[i].public_key());
+        let link = |a: usize, b: usize| sign_continuity(&keys[a], &keys[b], AT).expect("s");
+        let mut broken = link(2, 3);
+        broken.sig_old = link(1, 2).sig_old;
+        let chains = [
+            vec![link(0, 1), link(1, 2), link(2, 3), link(3, 4)],
+            vec![link(0, 1), link(2, 3), link(3, 4)],
+            vec![link(0, 1), link(1, 2), broken, link(3, 4)],
+            vec![link(0, 1), link(1, 0), link(0, 1), link(1, 2)],
+            vec![link(5, 4), link(0, 1), link(1, 4)],
+            vec![],
+        ];
+        for chain in &chains {
+            for current in 0..6 {
+                let fast: std::collections::BTreeSet<String> =
+                    continuity_keys(chain, &pk(current)).into_iter().collect();
+                assert_eq!(fast, keys_by_walks(chain, &pk(current)), "chain of {} to key {current}", chain.len());
+            }
+        }
+        let full = &chains[0];
+        assert_eq!(continuity_keys(full, &pk(4)).len(), 5);
+        // Longer than MAX_CHAIN: nothing is followed.
+        let long = vec![full[0].clone(); MAX_CHAIN + 1];
+        assert_eq!(continuity_keys(&long, &pk(1)), vec![pk(1)]);
+    }
+
+    #[test]
+    fn continuity_refuses_small_order_keys() {
+        // The identity point: verify_strict refuses small-order keys whatever the signature.
+        let mut weak = [0u8; 32];
+        weak[0] = 1;
+        let k1 = IdentityKey::generate().expect("rng");
+        let s = ContinuityStatement {
+            old_key: b64url_encode(&weak),
+            new_key: b64url_encode(&k1.public_key()),
+            at: AT.to_owned(),
+            sig_old: b64url_encode(&[0u8; 64]),
+            sig_new: b64url_encode(&[0u8; 64]),
+        };
+        assert_eq!(verify_continuity(&s), Err(CryptoError::BadSignature));
     }
 }

@@ -28,6 +28,11 @@ rustup_home="${RUSTUP_HOME:-$HOME/.rustup}"
 export CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS="${CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS:-} \
 --remap-path-prefix=$rustup_home=/rustup --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$PWD=/tavrn-crypto"
 
+# No wasm-opt pass: measured on this module (binaryen 132), `wasm-opt -Oz` saves 11 % of the raw size but makes the
+# gzip transfer 5 % larger (LLVM already optimized for size); compressing the transfer is the bigger win
+# (1.87 MB raw, 0.64 MB gzip; tavrn-node#91). The module
+# also contains the other ciphersuites of the OpenMLS RustCrypto provider, which dispatches at run time; leaving them
+# out needs a provider of our own for 0x0001 (see the README).
 cargo build --lib --target wasm32-unknown-unknown --profile wasm --locked
 target_dir="${CARGO_TARGET_DIR:-target}"
 rm -rf pkg/dist

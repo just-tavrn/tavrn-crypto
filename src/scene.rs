@@ -42,13 +42,9 @@ impl ScenePart {
     }
 }
 
-/// Scene ids are ULIDs chosen by the client (26 Crockford base32 characters).
+/// Scene ids are canonical ULIDs chosen by the client (26 Crockford base32 characters, the first at most `7`).
 fn check_scene_id(id: &str) -> Result<()> {
-    let ok = id.len() == 26
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b.is_ascii_uppercase() && !matches!(b, b'I' | b'L' | b'O' | b'U')));
-    if ok { Ok(()) } else { Err(CryptoError::InvalidInput("scene id")) }
+    if crate::util::valid_ulid(id) { Ok(()) } else { Err(CryptoError::InvalidInput("scene id")) }
 }
 
 fn aad(scene_id: &str, part: ScenePart) -> Vec<u8> {
@@ -137,9 +133,14 @@ mod tests {
     #[test]
     fn scene_ids_and_parts_are_checked() {
         let k = BackupKey::from_bytes([7u8; 32]);
-        for bad in
-            ["", "short", "01J9ZK3G5M8Q2W4E6R8T0Y2V4x", "01J9ZK3G5M8Q2W4E6R8T0Y2V4I", "../../../../etc/passwd/xx"]
-        {
+        for bad in [
+            "",
+            "short",
+            "01J9ZK3G5M8Q2W4E6R8T0Y2V4x",
+            "01J9ZK3G5M8Q2W4E6R8T0Y2V4I",
+            "../../../../etc/passwd/xx",
+            "81J9ZK3G5M8Q2W4E6R8T0Y2V4X",
+        ] {
             assert!(encrypt_scene(&k, bad, ScenePart::Scene, b"x").is_err(), "{bad}");
             assert!(decrypt_scene(&k, bad, ScenePart::Scene, &[1u8; 64]).is_err(), "{bad}");
         }

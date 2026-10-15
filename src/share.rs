@@ -59,10 +59,8 @@ pub fn verify_share_key(
     signature: &[u8],
 ) -> Result<()> {
     check_device_id(device_id)?;
+    // `verify_strict` also refuses small-order (weak) keys.
     let key = VerifyingKey::from_bytes(device_public).map_err(|_| CryptoError::BadSignature)?;
-    if key.is_weak() {
-        return Err(CryptoError::BadSignature);
-    }
     let signature = Signature::from_slice(signature).map_err(|_| CryptoError::BadSignature)?;
     key.verify_strict(&share_key_signing_input(share_public, device_public, device_id), &signature)
         .map_err(|_| CryptoError::BadSignature)
