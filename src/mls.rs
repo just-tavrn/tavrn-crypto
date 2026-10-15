@@ -11,7 +11,8 @@
 //! it, call [`Client::merge_pending_commit`]; after the node rejected it (another commit won the
 //! epoch), call [`Client::discard_pending_commit`], process the winning commit and retry.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Mutex;
 
 use openmls::messages::group_info::VerifiableGroupInfo;
 use openmls::prelude::tls_codec::Deserialize as _;
@@ -45,6 +46,18 @@ pub(crate) struct Provider {
     pub(crate) storage: MemoryStorage,
 }
 
+impl Drop for Provider {
+    /// The storage holds HPKE private keys and epoch secrets: wipe it when the client goes away (a reload, a rollback
+    /// to a snapshot, a sign-out), so that the values do not stay readable in freed memory.
+    fn drop(&mut self) {
+        if let Ok(mut values) = self.storage.values.write() {
+            for value in values.values_mut() {
+                zeroize::Zeroize::zeroize(value);
+            }
+        }
+    }
+}
+
 impl OpenMlsProvider for Provider {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
@@ -61,6 +74,13 @@ impl OpenMlsProvider for Provider {
     fn rand(&self) -> &Self::RandProvider {
         &self.crypto
     }
+}
+
+/// Bytes [`write_storage`] appends for `storage` (export buffers are allocated once: a reallocation would leave an
+/// unwiped copy of the secrets behind).
+pub(crate) fn storage_len(storage: &MemoryStorage) -> Result<usize> {
+    let values = storage.values.read().map_err(|_| CryptoError::StateMalformed)?;
+    Ok(4 + values.iter().map(|(k, v)| 8 + k.len() + v.len()).sum::<usize>())
 }
 
 pub(crate) fn write_storage(storage: &MemoryStorage, out: &mut Vec<u8>) -> Result<()> {
@@ -90,6 +110,73 @@ pub(crate) fn read_storage(r: &mut Reader<'_>) -> Result<MemoryStorage> {
     let storage = MemoryStorage::default();
     *storage.values.write().map_err(|_| CryptoError::StateMalformed)? = map;
     Ok(storage)
+}
+
+/// The value types the in-memory storage of OpenMLS reads with a panicking `unwrap` (instead of an error), by their
+/// storage label. Imported state is checked against them before any group is loaded: a malformed or foreign value
+/// must end in [`CryptoError::StateMalformed`], not in a panic (a trap in WebAssembly) on first use.
+type ValueCheck = fn(&[u8]) -> bool;
+const UNCHECKED_READS: [(&[u8], ValueCheck); 5] = [
+    (b"Tree", |v| serde_json::from_slice::<openmls::treesync::TreeSync>(v).is_ok()),
+    (b"GroupContext", |v| serde_json::from_slice::<GroupContext>(v).is_ok()),
+    (b"InterimTranscriptHash", |v| serde_json::from_slice::<InterimTranscriptHash>(v).is_ok()),
+    (b"ConfirmationTag", |v| serde_json::from_slice::<ConfirmationTag>(v).is_ok()),
+    (b"ProposalQueueRefs", |v| serde_json::from_slice::<Vec<Vec<u8>>>(v).is_ok()),
+];
+const GROUP_STATE_LABEL: &[u8] = b"GroupState";
+const PROPOSAL_QUEUE_REFS_LABEL: &[u8] = b"ProposalQueueRefs";
+const QUEUED_PROPOSAL_LABEL: &[u8] = b"QueuedProposal";
+
+/// The JSON key part of a storage key `label || key || version(u16 BE)` of the current storage version.
+fn storage_key_part<'a>(storage_key: &'a [u8], label: &[u8]) -> Option<&'a [u8]> {
+    let rest = storage_key.strip_prefix(label)?;
+    let (key, version) = rest.split_at_checked(rest.len().checked_sub(2)?)?;
+    (version == openmls_traits::storage::CURRENT_VERSION.to_be_bytes()).then_some(key)
+}
+
+/// Checks every value OpenMLS would read without error handling (see [`UNCHECKED_READS`]), including that every
+/// queued proposal reference names a stored proposal, then loads every group. Returns the loaded groups by
+/// conversation, so the client starts with them cached.
+fn load_groups(storage: &MemoryStorage) -> Result<HashMap<String, MlsGroup>> {
+    let mut group_ids = Vec::new();
+    {
+        let values = storage.values.read().map_err(|_| CryptoError::StateMalformed)?;
+        for (key, value) in values.iter() {
+            for (label, check) in UNCHECKED_READS {
+                if storage_key_part(key, label).is_some() && !check(value) {
+                    return Err(CryptoError::StateMalformed);
+                }
+            }
+            if let Some(group) = storage_key_part(key, PROPOSAL_QUEUE_REFS_LABEL) {
+                let group: GroupId = serde_json::from_slice(group).map_err(|_| CryptoError::StateMalformed)?;
+                let refs: Vec<Vec<u8>> = serde_json::from_slice(value).map_err(|_| CryptoError::StateMalformed)?;
+                for r in refs {
+                    let r: openmls::ciphersuite::hash_ref::ProposalRef =
+                        serde_json::from_slice(&r).map_err(|_| CryptoError::StateMalformed)?;
+                    let mut proposal = QUEUED_PROPOSAL_LABEL.to_vec();
+                    proposal.extend(serde_json::to_vec(&(&group, &r)).map_err(|_| CryptoError::StateMalformed)?);
+                    proposal.extend_from_slice(&openmls_traits::storage::CURRENT_VERSION.to_be_bytes());
+                    if !values.contains_key(&proposal) {
+                        return Err(CryptoError::StateMalformed);
+                    }
+                }
+            }
+            if let Some(group) = storage_key_part(key, GROUP_STATE_LABEL) {
+                group_ids.push(serde_json::from_slice::<GroupId>(group).map_err(|_| CryptoError::StateMalformed)?);
+            }
+        }
+    }
+    let mut groups = HashMap::with_capacity(group_ids.len());
+    for id in group_ids {
+        // An incomplete group (None) is not loadable now either: it stays unknown, as before.
+        let Some(group) = MlsGroup::load(storage, &id).map_err(|_| CryptoError::StateMalformed)? else { continue };
+        let conversation = std::str::from_utf8(id.as_slice())
+            .ok()
+            .filter(|c| crate::util::valid_conversation(c))
+            .ok_or(CryptoError::StateMalformed)?;
+        groups.insert(conversation.to_owned(), group);
+    }
+    Ok(groups)
 }
 
 // ---- Helpers ----------------------------------------------------------------------------------
@@ -229,6 +316,10 @@ pub struct Client {
     device: Device,
     epoch_keys: BTreeMap<(String, u64), Zeroizing<[u8; 32]>>,
     pending_external: BTreeSet<String>,
+    /// Groups loaded from the storage, by conversation: OpenMLS writes every change through to the storage, so a
+    /// cached group and the storage (what `export_state` writes) stay the same. Dropped when a call that changes the
+    /// group fails, deleted with the group, filled from the storage on first use.
+    groups: Mutex<HashMap<String, MlsGroup>>,
 }
 
 impl std::fmt::Debug for Client {
@@ -240,7 +331,13 @@ impl std::fmt::Debug for Client {
 impl Client {
     /// A client with empty state for `device`.
     pub fn new(device: Device) -> Self {
-        Self { provider: Provider::default(), device, epoch_keys: BTreeMap::new(), pending_external: BTreeSet::new() }
+        Self {
+            provider: Provider::default(),
+            device,
+            epoch_keys: BTreeMap::new(),
+            pending_external: BTreeSet::new(),
+            groups: Mutex::default(),
+        }
     }
 
     /// The device of this client.
@@ -252,7 +349,17 @@ impl Client {
 
     /// Serializes the complete state (device key, MLS storage, content keys). Secret!
     pub fn export_state(&self) -> Result<Zeroizing<Vec<u8>>> {
-        let mut out = Zeroizing::new(Vec::new());
+        let str16 = |s: &str| 2 + s.len().min(usize::from(u16::MAX));
+        let len = STATE_MAGIC.len()
+            + str16(self.device.user_address())
+            + str16(self.device.device_id())
+            + 32
+            + storage_len(&self.provider.storage)?
+            + 4
+            + self.epoch_keys.keys().map(|(c, _)| str16(c) + 8 + 32).sum::<usize>()
+            + 4
+            + self.pending_external.iter().map(|c| str16(c)).sum::<usize>();
+        let mut out = Zeroizing::new(Vec::with_capacity(len));
         out.extend_from_slice(STATE_MAGIC);
         put_str16(&mut out, self.device.user_address());
         put_str16(&mut out, self.device.device_id());
@@ -270,10 +377,12 @@ impl Client {
         for conversation in &self.pending_external {
             put_str16(&mut out, conversation);
         }
+        debug_assert_eq!(out.len(), len);
         Ok(out)
     }
 
-    /// Restores a client from [`Client::export_state`] output.
+    /// Restores a client from [`Client::export_state`] output. Every group is loaded once: a state whose MLS values
+    /// do not load is refused with [`CryptoError::StateMalformed`] here, instead of failing on first use.
     pub fn import_state(bytes: &[u8]) -> Result<Self> {
         let mut r = Reader::new(bytes);
         if r.take(4)? != STATE_MAGIC {
@@ -299,24 +408,67 @@ impl Client {
             pending_external.insert(conversation.to_owned());
         }
         r.finish()?;
-        Ok(Self { provider: Provider { crypto: RustCrypto::default(), storage }, device, epoch_keys, pending_external })
+        let groups = Mutex::new(load_groups(&storage)?);
+        Ok(Self {
+            provider: Provider { crypto: RustCrypto::default(), storage },
+            device,
+            epoch_keys,
+            pending_external,
+            groups,
+        })
     }
 
     // ---- Internal helpers ---------------------------------------------------------------------
 
-    fn load(&self, conversation: &str) -> Result<MlsGroup> {
+    fn load_from_storage(&self, conversation: &str) -> Result<MlsGroup> {
         check_conversation(conversation)?;
         MlsGroup::load(&self.provider.storage, &group_id(conversation)).map_err(mls)?.ok_or(CryptoError::UnknownGroup)
     }
 
-    fn load_ready(&self, conversation: &str) -> Result<MlsGroup> {
-        let group = self.load(conversation)?;
+    /// Runs `f` with the group of `conversation`, loaded from the storage once and cached ([`Client::groups`]).
+    /// `f` must not call back into the cache.
+    fn with_group<R>(&self, conversation: &str, f: impl FnOnce(&MlsGroup) -> Result<R>) -> Result<R> {
+        check_conversation(conversation)?;
+        let mut groups = self.groups.lock().map_err(|_| CryptoError::StateMalformed)?;
+        if let Some(group) = groups.get(conversation) {
+            return f(group);
+        }
+        let group = self.load_from_storage(conversation)?;
+        f(groups.entry(conversation.to_owned()).or_insert(group))
+    }
+
+    /// The group of `conversation` for a call that changes it: taken out of the cache (or loaded). The caller puts it
+    /// back with [`Client::keep`] after success; after a failure it is dropped, and the next use loads it from the
+    /// storage again (as every call did before the cache).
+    fn take(&mut self, conversation: &str) -> Result<MlsGroup> {
+        check_conversation(conversation)?;
+        let cached = self.groups.get_mut().map_err(|_| CryptoError::StateMalformed)?.remove(conversation);
+        match cached {
+            Some(group) => Ok(group),
+            None => self.load_from_storage(conversation),
+        }
+    }
+
+    fn keep(&mut self, conversation: &str, group: MlsGroup) {
+        if let Ok(groups) = self.groups.get_mut() {
+            groups.insert(conversation.to_owned(), group);
+        }
+    }
+
+    /// The group may send and commit: no external join pending, this device still a member.
+    fn check_ready(&self, conversation: &str, group: &MlsGroup) -> Result<()> {
         if self.pending_external.contains(conversation) {
             return Err(CryptoError::InvalidInput("external join pending"));
         }
         if !group.is_active() {
             return Err(CryptoError::NotMember);
         }
+        Ok(())
+    }
+
+    fn take_ready(&mut self, conversation: &str) -> Result<MlsGroup> {
+        let group = self.take(conversation)?;
+        self.check_ready(conversation, &group)?;
         Ok(group)
     }
 
@@ -365,7 +517,7 @@ impl Client {
 
     /// True if a local group exists for `conversation`.
     pub fn has_group(&self, conversation: &str) -> bool {
-        self.load(conversation).is_ok()
+        self.with_group(conversation, |_| Ok(())).is_ok()
     }
 
     /// Creates the MLS group of a new conversation (epoch 0, this device the only member).
@@ -384,6 +536,7 @@ impl Client {
             .map_err(mls)?;
         self.record_epoch_key(conversation, &group)?;
         let group_info = group.export_group_info(self.provider.crypto(), &self.device, true).map_err(mls)?;
+        self.keep(conversation, group);
         out_bytes(&group_info)
     }
 
@@ -414,7 +567,7 @@ impl Client {
         };
         Self::check_group_info(conversation, &group_info)?;
         let epoch = group_info.epoch().as_u64();
-        if let Ok(mut old) = self.load(conversation) {
+        if let Ok(mut old) = self.take(conversation) {
             self.delete_local(&mut old)?;
         }
         self.pending_external.remove(conversation);
@@ -463,7 +616,9 @@ impl Client {
         roster_of(staged.members())?;
         let group = staged.into_group(&self.provider).map_err(mls)?;
         self.record_epoch_key(&conversation, &group)?;
-        Ok((conversation, group.epoch().as_u64()))
+        let epoch = group.epoch().as_u64();
+        self.keep(&conversation, group);
+        Ok((conversation, epoch))
     }
 
     /// Adds devices by their KeyPackages (MLSMessage bytes) with a commit that also updates
@@ -472,7 +627,6 @@ impl Client {
         if key_packages.is_empty() {
             return Err(CryptoError::InvalidInput("no key packages"));
         }
-        let mut group = self.load_ready(conversation)?;
         let mut validated = Vec::with_capacity(key_packages.len());
         for kp in key_packages {
             let MlsMessageBodyIn::KeyPackage(kp) = parse_message(kp)? else {
@@ -485,6 +639,7 @@ impl Client {
             credential_identity(kp.leaf_node().credential())?;
             validated.push(kp);
         }
+        let mut group = self.take_ready(conversation)?;
         let epoch = group.epoch().as_u64();
         let bundle = group
             .commit_builder()
@@ -496,20 +651,26 @@ impl Client {
             .map_err(mls)?
             .stage_commit(&self.provider)
             .map_err(mls)?;
+        self.keep(conversation, group);
         Self::finish_commit(bundle, epoch)
     }
 
     /// Removes devices (by identity `<user>@<domain>/<device>`) from the group. An identity that names two leaves
     /// (one of them with a key that is not the device's) is refused as ambiguous: use [`Client::remove_leaves`].
     pub fn remove_members(&mut self, conversation: &str, identities: &[String]) -> Result<CommitOutput> {
-        let group = self.load_ready(conversation)?;
-        for identity in identities {
-            let leaves =
-                group.members().filter(|m| credential_identity(&m.credential).is_ok_and(|id| id == *identity)).count();
-            if leaves > 1 {
-                return Err(CryptoError::InvalidInput("identity names several leaves; remove them by key"));
+        self.with_group(conversation, |group| {
+            self.check_ready(conversation, group)?;
+            for identity in identities {
+                let leaves = group
+                    .members()
+                    .filter(|m| credential_identity(&m.credential).is_ok_and(|id| id == *identity))
+                    .count();
+                if leaves > 1 {
+                    return Err(CryptoError::InvalidInput("identity names several leaves; remove them by key"));
+                }
             }
-        }
+            Ok(())
+        })?;
         self.remove_where(conversation, identities.len(), |m, i| {
             credential_identity(&m.credential).is_ok_and(|id| id == identities[i])
         })
@@ -534,7 +695,7 @@ impl Client {
         if count == 0 {
             return Err(CryptoError::InvalidInput("no identities"));
         }
-        let mut group = self.load_ready(conversation)?;
+        let mut group = self.take_ready(conversation)?;
         let own = group.own_leaf_index();
         let mut indices = Vec::with_capacity(count);
         for i in 0..count {
@@ -558,12 +719,13 @@ impl Client {
             .map_err(mls)?
             .stage_commit(&self.provider)
             .map_err(mls)?;
+        self.keep(conversation, group);
         Self::finish_commit(bundle, epoch)
     }
 
     /// Commits a fresh leaf for this device: rotates the epoch (and the content key).
     pub fn self_update(&mut self, conversation: &str) -> Result<CommitOutput> {
-        let mut group = self.load_ready(conversation)?;
+        let mut group = self.take_ready(conversation)?;
         let epoch = group.epoch().as_u64();
         let bundle = group
             .commit_builder()
@@ -574,6 +736,7 @@ impl Client {
             .map_err(mls)?
             .stage_commit(&self.provider)
             .map_err(mls)?;
+        self.keep(conversation, group);
         Self::finish_commit(bundle, epoch)
     }
 
@@ -581,7 +744,7 @@ impl Client {
     /// signature key), i.e. a commit that tries to change the identity of the committer's leaf.
     #[cfg(test)]
     pub(crate) fn self_update_as(&mut self, conversation: &str, identity: &str) -> Result<CommitOutput> {
-        let mut group = self.load_ready(conversation)?;
+        let mut group = self.take_ready(conversation)?;
         let epoch = group.epoch().as_u64();
         let credential_with_key = CredentialWithKey {
             credential: BasicCredential::new(identity.as_bytes().to_vec()).into(),
@@ -597,36 +760,43 @@ impl Client {
             .map_err(mls)?
             .stage_commit(&self.provider)
             .map_err(mls)?;
+        self.keep(conversation, group);
         Self::finish_commit(bundle, epoch)
     }
 
     /// Applies this device's pending commit after the node accepted it. Returns the new epoch.
     pub fn merge_pending_commit(&mut self, conversation: &str) -> Result<u64> {
-        let mut group = self.load(conversation)?;
+        let mut group = self.take(conversation)?;
         if self.pending_external.remove(conversation) {
             // OpenMLS applies an external commit when creating it; only the confirmation is left.
             self.record_epoch_key(conversation, &group)?;
-            return Ok(group.epoch().as_u64());
+        } else {
+            if group.pending_commit().is_none() {
+                self.keep(conversation, group);
+                return Err(CryptoError::NoPendingCommit);
+            }
+            group.merge_pending_commit(&self.provider).map_err(mls)?;
+            self.record_epoch_key(conversation, &group)?;
         }
-        if group.pending_commit().is_none() {
-            return Err(CryptoError::NoPendingCommit);
-        }
-        group.merge_pending_commit(&self.provider).map_err(mls)?;
-        self.record_epoch_key(conversation, &group)?;
-        Ok(group.epoch().as_u64())
+        let epoch = group.epoch().as_u64();
+        self.keep(conversation, group);
+        Ok(epoch)
     }
 
     /// Drops this device's pending commit after the node rejected it. A rejected external join
     /// deletes the local group (join again with a fresh GroupInfo).
     pub fn discard_pending_commit(&mut self, conversation: &str) -> Result<()> {
-        let mut group = self.load(conversation)?;
+        let mut group = self.take(conversation)?;
         if self.pending_external.remove(conversation) {
             return self.delete_local(&mut group);
         }
         if group.pending_commit().is_none() {
+            self.keep(conversation, group);
             return Err(CryptoError::NoPendingCommit);
         }
-        group.clear_pending_commit(&self.provider.storage).map_err(mls)
+        group.clear_pending_commit(&self.provider.storage).map_err(mls)?;
+        self.keep(conversation, group);
+        Ok(())
     }
 
     /// Processes a commit from the node's handshake log (in epoch order).
@@ -635,13 +805,25 @@ impl Client {
     /// already merged commit); callers skip those. [`CryptoError::FutureEpoch`] means earlier
     /// commits are missing: fetch them first.
     pub fn process_handshake(&mut self, conversation: &str, message: &[u8]) -> Result<HandshakeOutcome> {
-        let mut group = self.load(conversation)?;
-        if self.pending_external.contains(conversation) {
-            return Err(CryptoError::InvalidInput("external join pending"));
+        let mut group = self.take(conversation)?;
+        let message = match self.check_handshake(conversation, &group, message) {
+            Ok(message) => message,
+            Err(e) => {
+                // Nothing was applied (a stale commit of this device, for example): the group stays cached.
+                self.keep(conversation, group);
+                return Err(e);
+            }
+        };
+        let outcome = self.apply_handshake(conversation, &mut group, message);
+        // A failure while applying leaves the group as the storage has it: loaded again on next use.
+        if outcome.is_ok() {
+            self.keep(conversation, group);
         }
-        if !group.is_active() {
-            return Err(CryptoError::NotMember);
-        }
+        outcome
+    }
+
+    fn check_handshake(&self, conversation: &str, group: &MlsGroup, message: &[u8]) -> Result<ProtocolMessage> {
+        self.check_ready(conversation, group)?;
         let message = match parse_message(message)? {
             MlsMessageBodyIn::PublicMessage(m) => ProtocolMessage::from(m),
             _ => return Err(CryptoError::InvalidInput("not a public handshake message")),
@@ -657,6 +839,15 @@ impl Client {
         if epoch > current {
             return Err(CryptoError::FutureEpoch);
         }
+        Ok(message)
+    }
+
+    fn apply_handshake(
+        &mut self,
+        conversation: &str,
+        group: &mut MlsGroup,
+        message: ProtocolMessage,
+    ) -> Result<HandshakeOutcome> {
         let had_pending = group.pending_commit().is_some();
         let processed = group.process_message(&self.provider, message).map_err(mls)?;
         let external_join = matches!(processed.sender(), Sender::NewMemberCommit);
@@ -667,7 +858,7 @@ impl Client {
                 if from_member {
                     check_path_leaf_identity(&staged, &committer)?;
                 }
-                let summary = summarize(&group, &staged)?;
+                let summary = summarize(group, &staged)?;
                 group.merge_staged_commit(&self.provider, *staged).map_err(mls)?;
                 (summary, false)
             }
@@ -675,7 +866,7 @@ impl Client {
             // POST was lost): it was accepted, so merge it.
             ProcessedMessageContent::OwnPendingCommit => {
                 let staged = group.pending_commit().ok_or(CryptoError::NoPendingCommit)?;
-                let summary = summarize(&group, staged)?;
+                let summary = summarize(group, staged)?;
                 group.merge_pending_commit(&self.provider).map_err(mls)?;
                 (summary, true)
             }
@@ -683,7 +874,7 @@ impl Client {
         };
         let (added, removed, self_removed) = summary;
         if !self_removed {
-            self.record_epoch_key(conversation, &group)?;
+            self.record_epoch_key(conversation, group)?;
         }
         Ok(HandshakeOutcome {
             epoch: group.epoch().as_u64(),
@@ -698,18 +889,18 @@ impl Client {
 
     /// Current epoch of the local group.
     pub fn current_epoch(&self, conversation: &str) -> Result<u64> {
-        Ok(self.load(conversation)?.epoch().as_u64())
+        self.with_group(conversation, |group| Ok(group.epoch().as_u64()))
     }
 
     /// All member leaves of the local group (compare against the node's member list and the
     /// device attestations to detect ghost members).
     pub fn roster(&self, conversation: &str) -> Result<Vec<RosterEntry>> {
-        roster_of(self.load(conversation)?.members())
+        self.with_group(conversation, |group| roster_of(group.members()))
     }
 
     /// Deletes the local group state (content keys are kept for history).
     pub fn delete_group(&mut self, conversation: &str) -> Result<()> {
-        let mut group = self.load(conversation)?;
+        let mut group = self.take(conversation)?;
         self.pending_external.remove(conversation);
         self.delete_local(&mut group)
     }
@@ -719,17 +910,26 @@ impl Client {
     /// Encrypts and signs a JSON content object for the current epoch. Returns the base64url
     /// `content` field; its epoch is also the envelope's `epoch`.
     pub fn encrypt_content(&self, conversation: &str, json: &str) -> Result<String> {
-        let group = self.load_ready(conversation)?;
-        let epoch = group.epoch().as_u64();
+        self.encrypt_content_with_epoch(conversation, json).map(|(content, _)| content)
+    }
+
+    /// [`Client::encrypt_content`] with the epoch it encrypted for (the envelope's `epoch`).
+    pub fn encrypt_content_with_epoch(&self, conversation: &str, json: &str) -> Result<(String, u64)> {
+        let epoch = self.with_group(conversation, |group| {
+            self.check_ready(conversation, group)?;
+            Ok(group.epoch().as_u64())
+        })?;
         let key = self.epoch_keys.get(&(conversation.to_owned(), epoch)).ok_or(CryptoError::UnknownEpoch)?;
-        content::seal(key, conversation, epoch, &self.device, json)
+        Ok((content::seal(key, conversation, epoch, &self.device, json)?, epoch))
     }
 
     /// Decrypts `content` written by `author`/`device_id` and verifies its device signature.
     ///
     /// Without `device_public_key` the key is taken from the current MLS roster (the leaf of
     /// `<author>/<device_id>`); if that device is no longer a member, the caller supplies the key
-    /// from the device's verified attestation.
+    /// from the device's verified attestation. With it (the attested key, `ENCRYPTION.md` §3.3), a leaf of
+    /// `<author>/<device_id>` in the local group must carry exactly that key, otherwise
+    /// [`CryptoError::UnknownSender`]; without a local group there is no leaf to compare.
     pub fn decrypt_content(
         &self,
         conversation: &str,
@@ -742,6 +942,21 @@ impl Client {
         check_user_address(author)?;
         check_device_id(device_id)?;
         let (header, ciphertext) = content::decode(content)?;
+        if let Some(attested) = device_public_key {
+            // The first leaf naming the device (the order of the roster) decides, before the epoch key is looked up.
+            let identity = format!("{author}/{device_id}");
+            let leaf = self.with_group(conversation, |group| {
+                Ok(group
+                    .members()
+                    .find(|m| credential_identity(&m.credential).is_ok_and(|id| id == identity))
+                    .map(|m| m.signature_key))
+            });
+            if let Ok(Some(leaf)) = leaf
+                && leaf.as_slice() != attested.as_slice()
+            {
+                return Err(CryptoError::UnknownSender);
+            }
+        }
         let key = self.epoch_keys.get(&(conversation.to_owned(), header.epoch)).ok_or(CryptoError::UnknownEpoch)?;
         let device_key = match device_public_key {
             Some(k) => *k,
@@ -762,10 +977,22 @@ impl Client {
     /// under a fresh random key, which the caller seals to every recipient device
     /// ([`crate::share::seal_share_key`]). Returns the base64url content and the key.
     pub fn encrypt_share(&self, conversation: &str, json: &str) -> Result<(String, Zeroizing<[u8; 32]>)> {
-        let group = self.load_ready(conversation)?;
+        self.encrypt_share_with_epoch(conversation, json).map(|(content, _, key)| (content, key))
+    }
+
+    /// [`Client::encrypt_share`] with the epoch of the content.
+    pub(crate) fn encrypt_share_with_epoch(
+        &self,
+        conversation: &str,
+        json: &str,
+    ) -> Result<(String, u64, Zeroizing<[u8; 32]>)> {
+        let epoch = self.with_group(conversation, |group| {
+            self.check_ready(conversation, group)?;
+            Ok(group.epoch().as_u64())
+        })?;
         let key = Zeroizing::new(random_array::<32>()?);
-        let content = content::seal(&key, conversation, group.epoch().as_u64(), &self.device, json)?;
-        Ok((content, key))
+        let content = content::seal(&key, conversation, epoch, &self.device, json)?;
+        Ok((content, epoch, key))
     }
 
     /// Opens a sealed share key addressed to this device (its share key, `ENCRYPTION.md` §3.1).
@@ -786,14 +1013,17 @@ impl Client {
     /// derive it on every epoch change while they are in voice and keep the previous ones in the key ring
     /// of their media encryption. `UnknownEpoch` if `epoch` is not the current one.
     pub fn export_voice_key(&self, conversation: &str, epoch: u64) -> Result<Zeroizing<[u8; 32]>> {
-        let group = self.load_ready(conversation)?;
-        if group.epoch().as_u64() != epoch {
-            return Err(CryptoError::UnknownEpoch);
-        }
-        let key =
-            Zeroizing::new(group.export_secret(self.provider.crypto(), VOICE_EXPORTER_LABEL, &[], 32).map_err(mls)?);
-        let key: [u8; 32] = key.as_slice().try_into().map_err(|_| CryptoError::Mls("exporter length".into()))?;
-        Ok(Zeroizing::new(key))
+        self.with_group(conversation, |group| {
+            self.check_ready(conversation, group)?;
+            if group.epoch().as_u64() != epoch {
+                return Err(CryptoError::UnknownEpoch);
+            }
+            let key = Zeroizing::new(
+                group.export_secret(self.provider.crypto(), VOICE_EXPORTER_LABEL, &[], 32).map_err(mls)?,
+            );
+            let key: [u8; 32] = key.as_slice().try_into().map_err(|_| CryptoError::Mls("exporter length".into()))?;
+            Ok(Zeroizing::new(key))
+        })
     }
 
     /// The inbox public key of `epoch` for write-only webhooks with this device's signature over it
