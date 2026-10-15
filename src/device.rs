@@ -44,10 +44,8 @@ pub fn verify_login_proof(
     use ed25519_dalek::{Signature, VerifyingKey};
     let msg = login_proof_message(device_id, user_address, nonce)?;
     let sig: [u8; 64] = proof.try_into().map_err(|_| CryptoError::BadSignature)?;
+    // `verify_strict` also refuses small-order (weak) keys.
     let key = VerifyingKey::from_bytes(device_public_key).map_err(|_| CryptoError::BadSignature)?;
-    if key.is_weak() {
-        return Err(CryptoError::BadSignature);
-    }
     key.verify_strict(&msg, &Signature::from_bytes(&sig)).map_err(|_| CryptoError::BadSignature)
 }
 
@@ -206,6 +204,12 @@ mod tests {
         let stranger = Device::generate(ALICE, DEV).expect("device");
         assert!(verify_login_proof(&stranger.public_key(), DEV, ALICE, "nonce-1", &proof).is_err(), "other key");
         assert!(verify_login_proof(&d.public_key(), DEV, ALICE, "nonce-1", &proof[..63]).is_err(), "short proof");
+        // A small-order key (the identity point) with the trivial signature is refused by the strict check.
+        let mut weak = [0u8; 32];
+        weak[0] = 1;
+        let mut trivial = [0u8; 64];
+        trivial[0] = 1;
+        assert_eq!(verify_login_proof(&weak, DEV, ALICE, "nonce-1", &trivial), Err(CryptoError::BadSignature));
         assert!(d.sign_login("").is_err());
         assert!(d.sign_login(&"n".repeat(MAX_LOGIN_NONCE_LEN + 1)).is_err());
         // The message layout of ENCRYPTION.md §3.4.

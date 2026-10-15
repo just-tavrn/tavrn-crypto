@@ -164,11 +164,8 @@ pub fn sign_continuity(old: &IdentityKey, new: &IdentityKey, at: &str) -> Result
 
 fn verifying_key(b64: &str) -> Result<VerifyingKey> {
     let bytes = b64url_decode_array::<32>(b64, "identity key").map_err(|_| CryptoError::BadSignature)?;
-    let key = VerifyingKey::from_bytes(&bytes).map_err(|_| CryptoError::BadSignature)?;
-    if key.is_weak() {
-        return Err(CryptoError::BadSignature);
-    }
-    Ok(key)
+    // Small-order (weak) keys are refused by `verify_strict`.
+    VerifyingKey::from_bytes(&bytes).map_err(|_| CryptoError::BadSignature)
 }
 
 /// Checks both signatures of a statement (strict Ed25519, distinct non-weak keys).
@@ -328,5 +325,21 @@ mod tests {
         broken[1].sig_new = broken[0].sig_new.clone();
         assert!(!continuity_reaches(&broken, &pk(&k0), &pk(&k3)));
         assert!(continuity_reaches(&broken, &pk(&k2), &pk(&k3)), "later links stand alone");
+    }
+
+    #[test]
+    fn continuity_refuses_small_order_keys() {
+        // The identity point: verify_strict refuses small-order keys whatever the signature.
+        let mut weak = [0u8; 32];
+        weak[0] = 1;
+        let k1 = IdentityKey::generate().expect("rng");
+        let s = ContinuityStatement {
+            old_key: b64url_encode(&weak),
+            new_key: b64url_encode(&k1.public_key()),
+            at: AT.to_owned(),
+            sig_old: b64url_encode(&[0u8; 64]),
+            sig_new: b64url_encode(&[0u8; 64]),
+        };
+        assert_eq!(verify_continuity(&s), Err(CryptoError::BadSignature));
     }
 }

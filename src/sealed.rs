@@ -62,10 +62,7 @@ pub fn verify_inbox_key(
 ) -> Result<()> {
     let key = VerifyingKey::from_bytes(device_key).map_err(|_| CryptoError::InvalidInput("device key"))?;
     let signature = Signature::from_slice(signature).map_err(|_| CryptoError::BadSignature)?;
-    if key.is_weak() {
-        return Err(CryptoError::BadSignature);
-    }
-    // Strict verification, as everywhere in the protocol (ENCRYPTION.md §0).
+    // Strict verification, as everywhere in the protocol (ENCRYPTION.md §0); it also refuses small-order keys.
     key.verify_strict(&inbox_signing_input(conversation, epoch, public_key), &signature)
         .map_err(|_| CryptoError::BadSignature)
 }
