@@ -45,8 +45,8 @@ pub use device::Device;
 pub use error::{CryptoError, Result};
 pub use file::{EncryptedFile, decrypt_file, encrypt_file};
 pub use identity::{
-    ContinuityStatement, IdentityKey, continuity_reaches, sign_continuity, unwrap_identity_key, verify_continuity,
-    wrap_identity_key,
+    ContinuityStatement, IdentityKey, continuity_keys, continuity_reaches, sign_continuity, unwrap_identity_key,
+    verify_continuity, wrap_identity_key,
 };
 pub use keys::{BackupKey, DeviceAttestation, MasterSecret, RecoveryKey, attest_device, verify_device_attestation};
 pub use mls::{CIPHERSUITE, Client, CommitOutput, HandshakeOutcome, RosterEntry};
