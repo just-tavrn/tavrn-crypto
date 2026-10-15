@@ -53,7 +53,8 @@ jobs:
       skip: ${{ needs.changes.outputs.code != 'true' }}
       runner: tavrn-heavy
       # rustfmt, clippy (native), clippy (wasm32: the bindings in src/wasm.rs), tests incl. the protocol
-      # test vectors (submodule protocol/), cargo deny with deny.toml.
+      # test vectors (submodule protocol/), cargo deny with deny.toml (bans, licenses, sources; the advisories run in
+      # advisories.yml).
       extra-targets: wasm32-unknown-unknown
       clippy-args: --all-targets --locked
       extra-clippy: |
