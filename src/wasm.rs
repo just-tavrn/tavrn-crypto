@@ -4,6 +4,10 @@
 //! Binary values are `Uint8Array`, epochs are `number` (integers below 2^53). Every failure throws
 //! a JS `Error` whose `name` is the stable [`CryptoError::code`] (e.g. `"stale_epoch"`) and whose
 //! message never contains secret material.
+//!
+//! Secrets cross the boundary without a plain copy in WebAssembly memory (which never shrinks and is not wiped when
+//! the glue frees a buffer): secret inputs are `Uint8Array`s copied into wiped buffers ([`secret_in`], [`key32`]),
+//! secret outputs are built as `Uint8Array` straight from wiped buffers ([`secret_out`]). Callers wipe their own copies.
 
 // `getter_with_clone` generates `.clone()` for Copy fields as well.
 #![allow(clippy::clone_on_copy)]
@@ -23,6 +27,28 @@ fn js_err(e: CryptoError) -> JsValue {
 }
 
 type JsResult<T> = Result<T, JsValue>;
+
+/// A secret input, copied into a buffer that is wiped on drop.
+fn secret_in(bytes: &Uint8Array) -> zeroize::Zeroizing<Vec<u8>> {
+    let mut out = zeroize::Zeroizing::new(vec![0u8; bytes.length() as usize]);
+    bytes.copy_to(&mut out);
+    out
+}
+
+/// A 32-byte secret input (a key), copied into a buffer that is wiped on drop.
+fn key32(bytes: &Uint8Array, what: &'static str) -> JsResult<zeroize::Zeroizing<[u8; 32]>> {
+    if bytes.length() != 32 {
+        return Err(js_err(CryptoError::InvalidInput(what)));
+    }
+    let mut out = zeroize::Zeroizing::new([0u8; 32]);
+    bytes.copy_to(out.as_mut_slice());
+    Ok(out)
+}
+
+/// A secret output: one copy into a new JavaScript array; the Rust buffer is wiped by its owner.
+fn secret_out(bytes: &[u8]) -> Uint8Array {
+    Uint8Array::from(bytes)
+}
 
 fn arr<const N: usize>(bytes: &[u8], what: &'static str) -> JsResult<[u8; N]> {
     bytes.try_into().map_err(|_| js_err(CryptoError::InvalidInput(what)))
@@ -68,14 +94,14 @@ impl MasterSecret {
 
     /// Restores from the 32 raw bytes (local secure storage only).
     #[wasm_bindgen(js_name = fromBytes)]
-    pub fn from_bytes(bytes: &[u8]) -> JsResult<MasterSecret> {
-        Ok(Self(keys::MasterSecret::from_bytes(arr(bytes, "master secret")?)))
+    pub fn from_bytes(bytes: &Uint8Array) -> JsResult<MasterSecret> {
+        Ok(Self(keys::MasterSecret::from_bytes(*key32(bytes, "master secret")?)))
     }
 
     /// The 32 raw bytes (local secure storage only).
     #[wasm_bindgen(js_name = toBytes)]
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_bytes().to_vec()
+    pub fn to_bytes(&self) -> Uint8Array {
+        secret_out(self.0.to_bytes().as_slice())
     }
 
     /// Text of the key file `tavrn-key-<username>.txt` for `account` (`user@domain`).
@@ -92,14 +118,14 @@ impl MasterSecret {
 
     /// AES-256 key (32 bytes) for the client's local crypto storage of device `deviceId`.
     #[wasm_bindgen(js_name = localStorageKey)]
-    pub fn local_storage_key(&self, device_id: &str) -> JsResult<Vec<u8>> {
-        Ok(self.0.local_storage_key(device_id).map_err(js_err)?.to_vec())
+    pub fn local_storage_key(&self, device_id: &str) -> JsResult<Uint8Array> {
+        Ok(secret_out(self.0.local_storage_key(device_id).map_err(js_err)?.as_slice()))
     }
 
     /// AES-256 backup key (32 bytes) for history backups.
     #[wasm_bindgen(js_name = backupKey)]
-    pub fn backup_key(&self) -> Vec<u8> {
-        self.0.backup_key().to_bytes().to_vec()
+    pub fn backup_key(&self) -> Uint8Array {
+        secret_out(self.0.backup_key().to_bytes().as_slice())
     }
 
     /// Signs a device public key with the identity key; returns the 64-byte signature.
@@ -148,8 +174,8 @@ impl RecoveryKey {
 
     /// AES-256 wrapping key (32 bytes) of the `recovery` method.
     #[wasm_bindgen(js_name = wrappingKey)]
-    pub fn wrapping_key(&self) -> Vec<u8> {
-        self.0.wrapping_key().to_vec()
+    pub fn wrapping_key(&self) -> Uint8Array {
+        secret_out(self.0.wrapping_key().as_slice())
     }
 }
 
@@ -158,11 +184,11 @@ impl RecoveryKey {
 #[wasm_bindgen(js_name = wrapMasterSecret)]
 pub fn wrap_master_secret(
     master: &MasterSecret,
-    wrapping_key: &[u8],
+    wrapping_key: &Uint8Array,
     user_address: &str,
     method: &str,
 ) -> JsResult<Vec<u8>> {
-    secret_storage::wrap_master_secret(&master.0, &arr(wrapping_key, "wrapping key")?, user_address, method)
+    secret_storage::wrap_master_secret(&master.0, &*key32(wrapping_key, "wrapping key")?, user_address, method)
         .map_err(js_err)
 }
 
@@ -170,19 +196,19 @@ pub fn wrap_master_secret(
 #[wasm_bindgen(js_name = unwrapMasterSecret)]
 pub fn unwrap_master_secret(
     wrapped: &[u8],
-    wrapping_key: &[u8],
+    wrapping_key: &Uint8Array,
     user_address: &str,
     method: &str,
 ) -> JsResult<MasterSecret> {
-    secret_storage::unwrap_master_secret(wrapped, &arr(wrapping_key, "wrapping key")?, user_address, method)
+    secret_storage::unwrap_master_secret(wrapped, &*key32(wrapping_key, "wrapping key")?, user_address, method)
         .map(MasterSecret)
         .map_err(js_err)
 }
 
 /// Wrapping key (32 bytes) of a `passkey:<credential id>` entry from the 32-byte WebAuthn PRF output.
 #[wasm_bindgen(js_name = passkeyWrappingKey)]
-pub fn passkey_wrapping_key(prf_output: &[u8]) -> JsResult<Vec<u8>> {
-    Ok(secret_storage::passkey_wrapping_key(prf_output).map_err(js_err)?.to_vec())
+pub fn passkey_wrapping_key(prf_output: &Uint8Array) -> JsResult<Uint8Array> {
+    Ok(secret_out(secret_storage::passkey_wrapping_key(&secret_in(prf_output)).map_err(js_err)?.as_slice()))
 }
 
 /// The input to pass as `extensions.prf.eval.first` in every WebAuthn ceremony.
@@ -242,14 +268,14 @@ impl IdentityKey {
 
     /// From the 32-byte seed (local secure storage only).
     #[wasm_bindgen(js_name = fromBytes)]
-    pub fn from_bytes(bytes: &[u8]) -> JsResult<IdentityKey> {
-        Ok(Self(identity::IdentityKey::from_seed(&arr(bytes, "identity seed")?)))
+    pub fn from_bytes(bytes: &Uint8Array) -> JsResult<IdentityKey> {
+        Ok(Self(identity::IdentityKey::from_seed(&*key32(bytes, "identity seed")?)))
     }
 
     /// The 32-byte seed (local secure storage only).
     #[wasm_bindgen(js_name = toBytes)]
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_seed().to_vec()
+    pub fn to_bytes(&self) -> Uint8Array {
+        secret_out(self.0.to_seed().as_slice())
     }
 
     /// Ed25519 public identity key (32 bytes).
@@ -303,48 +329,70 @@ pub fn continuity_reaches(chain_json: &str, from: &str, to: &str) -> bool {
         .is_ok_and(|chain| identity::continuity_reaches(&chain, from, to))
 }
 
+/// The keys that lead to `current` through valid consecutive statements of `chain` (JSON array, oldest first),
+/// `current` included; every statement is verified at most once. Only `current` for a malformed chain.
+#[wasm_bindgen(js_name = continuityKeys)]
+pub fn continuity_keys(chain_json: &str, current: &str) -> Vec<String> {
+    match serde_json::from_str::<Vec<identity::ContinuityStatement>>(chain_json) {
+        Ok(chain) => identity::continuity_keys(&chain, current),
+        Err(_) => vec![current.to_owned()],
+    }
+}
+
 // ---- Files and content headers --------------------------------------------------------------
 
 /// An encrypted attachment: upload `ciphertext`, put `key`, `nonce`, `sha256` into the content.
-#[wasm_bindgen(getter_with_clone)]
-pub struct EncryptedFile {
-    pub ciphertext: Vec<u8>,
-    pub key: Vec<u8>,
-    pub nonce: Vec<u8>,
-    pub sha256: Vec<u8>,
+#[wasm_bindgen]
+pub struct EncryptedFile(file::EncryptedFile);
+
+#[wasm_bindgen]
+impl EncryptedFile {
+    #[wasm_bindgen(getter)]
+    pub fn ciphertext(&self) -> Uint8Array {
+        Uint8Array::from(self.0.ciphertext.as_slice())
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn key(&self) -> Uint8Array {
+        secret_out(&self.0.key)
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn nonce(&self) -> Uint8Array {
+        Uint8Array::from(&self.0.nonce[..])
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn sha256(&self) -> Uint8Array {
+        Uint8Array::from(&self.0.sha256[..])
+    }
 }
 
 /// Encrypts a file with a fresh random key (AES-256-GCM, one shot).
 #[wasm_bindgen(js_name = encryptFile)]
 pub fn encrypt_file(plaintext: &[u8]) -> JsResult<EncryptedFile> {
-    let f = file::encrypt_file(plaintext).map_err(js_err)?;
-    Ok(EncryptedFile {
-        ciphertext: f.ciphertext.clone(),
-        key: f.key.to_vec(),
-        nonce: f.nonce.to_vec(),
-        sha256: f.sha256.to_vec(),
-    })
+    file::encrypt_file(plaintext).map(EncryptedFile).map_err(js_err)
 }
 
 /// Checks the ciphertext hash and decrypts an attachment.
 #[wasm_bindgen(js_name = decryptFile)]
-pub fn decrypt_file(ciphertext: &[u8], key: &[u8], nonce: &[u8], sha256: &[u8]) -> JsResult<Vec<u8>> {
-    file::decrypt_file(ciphertext, &arr(key, "file key")?, &arr(nonce, "nonce")?, &arr(sha256, "sha256")?)
+pub fn decrypt_file(ciphertext: &[u8], key: &Uint8Array, nonce: &[u8], sha256: &[u8]) -> JsResult<Vec<u8>> {
+    file::decrypt_file(ciphertext, &*key32(key, "file key")?, &arr(nonce, "nonce")?, &arr(sha256, "sha256")?)
         .map_err(js_err)
 }
 
 /// Encrypts one part (`"scene"` or `"thumbnail"`) of a whiteboard scene under the backup key
 /// (`protocol/WHITEBOARD.md` §5).
 #[wasm_bindgen(js_name = encryptScene)]
-pub fn encrypt_scene(backup_key: &[u8], scene_id: &str, part: &str, plaintext: &[u8]) -> JsResult<Vec<u8>> {
-    let key = keys::BackupKey::from_bytes(arr(backup_key, "backup key")?);
+pub fn encrypt_scene(backup_key: &Uint8Array, scene_id: &str, part: &str, plaintext: &[u8]) -> JsResult<Vec<u8>> {
+    let key = keys::BackupKey::from_bytes(*key32(backup_key, "backup key")?);
     scene::encrypt_scene(&key, scene_id, scene::ScenePart::parse(part).map_err(js_err)?, plaintext).map_err(js_err)
 }
 
 /// Decrypts one part of a whiteboard scene.
 #[wasm_bindgen(js_name = decryptScene)]
-pub fn decrypt_scene(backup_key: &[u8], scene_id: &str, part: &str, blob: &[u8]) -> JsResult<Vec<u8>> {
-    let key = keys::BackupKey::from_bytes(arr(backup_key, "backup key")?);
+pub fn decrypt_scene(backup_key: &Uint8Array, scene_id: &str, part: &str, blob: &[u8]) -> JsResult<Vec<u8>> {
+    let key = keys::BackupKey::from_bytes(*key32(backup_key, "backup key")?);
     scene::decrypt_scene(&key, scene_id, scene::ScenePart::parse(part).map_err(js_err)?, blob).map_err(js_err)
 }
 
@@ -385,14 +433,14 @@ pub fn seal_share_key(share_public_key: &[u8], key: &[u8]) -> JsResult<Vec<u8>> 
 /// device signature; nothing is stored.
 #[wasm_bindgen(js_name = decryptContentWithKey)]
 pub fn decrypt_content_with_key(
-    key: &[u8],
+    key: &Uint8Array,
     conversation: &str,
     author: &str,
     device_id: &str,
     content: &str,
     device_public_key: &[u8],
 ) -> JsResult<String> {
-    let key = zeroize::Zeroizing::new(arr::<32>(key, "share key")?);
+    let key = key32(key, "share key")?;
     let device_key = arr::<32>(device_public_key, "device public key")?;
     share::decrypt_content_with_key(&key, conversation, author, device_id, content, &device_key).map_err(js_err)
 }
@@ -400,23 +448,23 @@ pub fn decrypt_content_with_key(
 /// The share secret key a device derives from its device secret (ENCRYPTION.md §3.1; test vectors and tools, clients
 /// use `Client.shareKey` and `Client.openShareBox`).
 #[wasm_bindgen(js_name = deviceShareSecretKey)]
-pub fn device_share_secret_key(device_secret_key: &[u8]) -> JsResult<Vec<u8>> {
-    let secret = zeroize::Zeroizing::new(arr::<32>(device_secret_key, "device secret key")?);
-    Ok(share::share_secret(&secret).to_vec())
+pub fn device_share_secret_key(device_secret_key: &Uint8Array) -> JsResult<Uint8Array> {
+    let secret = key32(device_secret_key, "device secret key")?;
+    Ok(secret_out(share::share_secret(&secret).as_slice()))
 }
 
 /// The X25519 public key of a share secret key.
 #[wasm_bindgen(js_name = sharePublicKey)]
-pub fn share_public_key(share_secret_key: &[u8]) -> JsResult<Vec<u8>> {
-    let secret = zeroize::Zeroizing::new(arr::<32>(share_secret_key, "share secret key")?);
+pub fn share_public_key(share_secret_key: &Uint8Array) -> JsResult<Vec<u8>> {
+    let secret = key32(share_secret_key, "share secret key")?;
     Ok(share::share_public_key(&secret).to_vec())
 }
 
 /// Opens a sealed share key with a raw share secret key (test vectors and tools; clients use `Client.openShareBox`).
 #[wasm_bindgen(js_name = openShareBox)]
-pub fn open_share_box(share_secret_key: &[u8], sealed: &[u8]) -> JsResult<Vec<u8>> {
-    let secret = zeroize::Zeroizing::new(arr::<32>(share_secret_key, "share secret key")?);
-    Ok(share::open_share_box(&secret, sealed).map_err(js_err)?.to_vec())
+pub fn open_share_box(share_secret_key: &Uint8Array, sealed: &[u8]) -> JsResult<Uint8Array> {
+    let secret = key32(share_secret_key, "share secret key")?;
+    Ok(secret_out(share::open_share_box(&secret, sealed).map_err(js_err)?.as_slice()))
 }
 
 /// A device's share key with the device signature over it (`PUT /users/me/devices/{id}/share-key`).
@@ -542,19 +590,41 @@ pub fn verify_plaintext(
 
 // ---- MLS client -----------------------------------------------------------------------------
 
-/// Messages produced by a commit; see [`mls::CommitOutput`].
-#[wasm_bindgen(getter_with_clone)]
+/// Messages produced by a commit; see [`mls::CommitOutput`]. Each read of a property copies the bytes once.
+#[wasm_bindgen]
 pub struct CommitOutput {
-    pub commit: Vec<u8>,
-    pub welcome: Option<Vec<u8>>,
-    #[wasm_bindgen(js_name = groupInfo)]
-    pub group_info: Vec<u8>,
-    pub epoch: f64,
+    commit: Vec<u8>,
+    welcome: Option<Vec<u8>>,
+    group_info: Vec<u8>,
+    epoch: f64,
 }
 
 impl CommitOutput {
     fn from_native(o: mls::CommitOutput) -> JsResult<Self> {
         Ok(Self { epoch: epoch_to_js(o.epoch)?, commit: o.commit, welcome: o.welcome, group_info: o.group_info })
+    }
+}
+
+#[wasm_bindgen]
+impl CommitOutput {
+    #[wasm_bindgen(getter)]
+    pub fn commit(&self) -> Uint8Array {
+        Uint8Array::from(self.commit.as_slice())
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn welcome(&self) -> Option<Uint8Array> {
+        self.welcome.as_deref().map(Uint8Array::from)
+    }
+
+    #[wasm_bindgen(getter, js_name = groupInfo)]
+    pub fn group_info(&self) -> Uint8Array {
+        Uint8Array::from(self.group_info.as_slice())
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn epoch(&self) -> f64 {
+        self.epoch
     }
 }
 
@@ -581,12 +651,30 @@ pub struct WelcomeJoin {
 }
 
 /// A member leaf of a group.
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+#[wasm_bindgen]
 pub struct RosterEntry {
-    pub identity: String,
-    #[wasm_bindgen(js_name = signatureKey)]
-    pub signature_key: Vec<u8>,
+    identity: String,
+    signature_key: [u8; 32],
+}
+
+#[wasm_bindgen]
+impl RosterEntry {
+    #[wasm_bindgen(getter)]
+    pub fn identity(&self) -> String {
+        self.identity.clone()
+    }
+
+    #[wasm_bindgen(getter, js_name = signatureKey)]
+    pub fn signature_key(&self) -> Uint8Array {
+        Uint8Array::from(&self.signature_key[..])
+    }
+}
+
+/// A content value with the epoch it was encrypted for (the envelope's `epoch`).
+#[wasm_bindgen(getter_with_clone)]
+pub struct EncryptedContent {
+    pub content: String,
+    pub epoch: f64,
 }
 
 /// The MLS client of this device. Persist `exportState()` after every mutating call.
@@ -600,16 +688,17 @@ impl Client {
         Ok(Self(mls::Client::new(crate::Device::generate(user_address, device_id).map_err(js_err)?)))
     }
 
-    /// Restores a client from `exportState()` bytes.
+    /// Restores a client from `exportState()` bytes (wipe them afterwards). Every group is loaded once:
+    /// `state_malformed` for a state whose groups do not load.
     #[wasm_bindgen(js_name = importState)]
-    pub fn import_state(state: &[u8]) -> JsResult<Client> {
-        mls::Client::import_state(state).map(Self).map_err(js_err)
+    pub fn import_state(state: &Uint8Array) -> JsResult<Client> {
+        mls::Client::import_state(&secret_in(state)).map(Self).map_err(js_err)
     }
 
-    /// Serializes the whole client state (secret!).
+    /// Serializes the whole client state (secret! wipe it after storing).
     #[wasm_bindgen(js_name = exportState)]
-    pub fn export_state(&self) -> JsResult<Vec<u8>> {
-        Ok(self.0.export_state().map_err(js_err)?.to_vec())
+    pub fn export_state(&self) -> JsResult<Uint8Array> {
+        Ok(secret_out(&self.0.export_state().map_err(js_err)?))
     }
 
     /// `<user>@<domain>/<device_id>`.
@@ -743,7 +832,7 @@ impl Client {
             .roster(conversation)
             .map_err(js_err)?
             .into_iter()
-            .map(|e| RosterEntry { identity: e.identity, signature_key: e.signature_key.to_vec() })
+            .map(|e| RosterEntry { identity: e.identity, signature_key: e.signature_key })
             .collect())
     }
 
@@ -767,8 +856,16 @@ impl Client {
         self.0.encrypt_content(conversation, json).map_err(js_err)
     }
 
-    /// Decrypts and verifies `content`. Pass `devicePublicKey` (from the verified attestation)
-    /// when the author device is no longer in the roster.
+    /// Encrypts a JSON content object; returns the `content` value with the epoch it was encrypted for.
+    #[wasm_bindgen(js_name = encryptContentWithEpoch)]
+    pub fn encrypt_content_with_epoch(&self, conversation: &str, json: &str) -> JsResult<EncryptedContent> {
+        let (content, epoch) = self.0.encrypt_content_with_epoch(conversation, json).map_err(js_err)?;
+        Ok(EncryptedContent { content, epoch: epoch_to_js(epoch)? })
+    }
+
+    /// Decrypts and verifies `content`. Pass `devicePublicKey` (from the verified attestation, ENCRYPTION.md §3.3)
+    /// whenever it is known: a leaf of the device in the local group with another key then fails with
+    /// `unknown_sender`. Without it the key of the device's leaf is used.
     #[wasm_bindgen(js_name = decryptContent)]
     pub fn decrypt_content(
         &self,
@@ -783,15 +880,15 @@ impl Client {
     }
 
     #[wasm_bindgen(js_name = exportEpochKey)]
-    pub fn export_epoch_key(&self, conversation: &str, epoch: f64) -> JsResult<Vec<u8>> {
-        Ok(self.0.export_epoch_key(conversation, epoch_from_js(epoch)?).map_err(js_err)?.to_vec())
+    pub fn export_epoch_key(&self, conversation: &str, epoch: f64) -> JsResult<Uint8Array> {
+        Ok(secret_out(self.0.export_epoch_key(conversation, epoch_from_js(epoch)?).map_err(js_err)?.as_slice()))
     }
 
     /// Voice frame key of the current epoch (32 bytes, ENCRYPTION.md §5a) for LiveKit's key provider at
     /// key index `epoch % 256`. Fails unless `epoch` is the group's current epoch.
     #[wasm_bindgen(js_name = exportVoiceKey)]
-    pub fn export_voice_key(&self, conversation: &str, epoch: f64) -> JsResult<Vec<u8>> {
-        Ok(self.0.export_voice_key(conversation, epoch_from_js(epoch)?).map_err(js_err)?.to_vec())
+    pub fn export_voice_key(&self, conversation: &str, epoch: f64) -> JsResult<Uint8Array> {
+        Ok(secret_out(self.0.export_voice_key(conversation, epoch_from_js(epoch)?).map_err(js_err)?.as_slice()))
     }
 
     /// This device's share key and the device signature over it (ENCRYPTION.md §3.1).
@@ -818,8 +915,7 @@ impl Client {
         if recipients.is_empty() {
             return Err(js_err(CryptoError::InvalidInput("no recipient devices")));
         }
-        let (content, key) = self.0.encrypt_share(conversation, json).map_err(js_err)?;
-        let epoch = content::content_header(&content).map_err(js_err)?.epoch;
+        let (content, epoch, key) = self.0.encrypt_share_with_epoch(conversation, json).map_err(js_err)?;
         let boxes = recipients
             .iter()
             .map(|pk| share::seal_share_key(pk, &key).map(|b| Uint8Array::from(b.as_slice())))
@@ -830,8 +926,8 @@ impl Client {
 
     /// Opens a sealed share key addressed to this device; returns the 32-byte key (`decryption_failed` otherwise).
     #[wasm_bindgen(js_name = openShareBox)]
-    pub fn open_share_box(&self, sealed: &[u8]) -> JsResult<Vec<u8>> {
-        Ok(self.0.open_share_box(sealed).map_err(js_err)?.to_vec())
+    pub fn open_share_box(&self, sealed: &[u8]) -> JsResult<Uint8Array> {
+        Ok(secret_out(self.0.open_share_box(sealed).map_err(js_err)?.as_slice()))
     }
 
     /// The inbox public key of `epoch` with this device's signature (needs the epoch's content key).
@@ -849,8 +945,8 @@ impl Client {
     }
 
     #[wasm_bindgen(js_name = importEpochKey)]
-    pub fn import_epoch_key(&mut self, conversation: &str, epoch: f64, key: &[u8]) -> JsResult<()> {
-        self.0.import_epoch_key(conversation, epoch_from_js(epoch)?, &arr(key, "epoch key")?).map_err(js_err)
+    pub fn import_epoch_key(&mut self, conversation: &str, epoch: f64, key: &Uint8Array) -> JsResult<()> {
+        self.0.import_epoch_key(conversation, epoch_from_js(epoch)?, &*key32(key, "epoch key")?).map_err(js_err)
     }
 
     #[wasm_bindgen(js_name = knownEpochs)]
@@ -860,15 +956,15 @@ impl Client {
 
     /// Encrypted history backup of one conversation (upload to the home node).
     #[wasm_bindgen(js_name = exportBackup)]
-    pub fn export_backup(&self, conversation: &str, backup_key: &[u8]) -> JsResult<Vec<u8>> {
-        let key = keys::BackupKey::from_bytes(arr(backup_key, "backup key")?);
+    pub fn export_backup(&self, conversation: &str, backup_key: &Uint8Array) -> JsResult<Vec<u8>> {
+        let key = keys::BackupKey::from_bytes(*key32(backup_key, "backup key")?);
         self.0.export_backup(conversation, &key).map_err(js_err)
     }
 
     /// Imports a history backup; returns the number of epoch keys in it.
     #[wasm_bindgen(js_name = importBackup)]
-    pub fn import_backup(&mut self, conversation: &str, backup_key: &[u8], blob: &[u8]) -> JsResult<u32> {
-        let key = keys::BackupKey::from_bytes(arr(backup_key, "backup key")?);
+    pub fn import_backup(&mut self, conversation: &str, backup_key: &Uint8Array, blob: &[u8]) -> JsResult<u32> {
+        let key = keys::BackupKey::from_bytes(*key32(backup_key, "backup key")?);
         let n = self.0.import_backup(conversation, &key, blob).map_err(js_err)?;
         u32::try_from(n).map_err(|_| js_err(CryptoError::InvalidInput("backup too large")))
     }

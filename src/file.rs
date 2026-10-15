@@ -13,7 +13,8 @@ pub const FILE_AAD: &[u8] = b"tavrn file v1";
 /// Result of [`encrypt_file`]. `key`, `nonce` and `sha256` go into the encrypted message content.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct EncryptedFile {
-    /// Ciphertext including the 16-byte tag; this is what gets uploaded.
+    /// Ciphertext including the 16-byte tag; this is what gets uploaded (public: not wiped on drop).
+    #[zeroize(skip)]
     pub ciphertext: Vec<u8>,
     /// Random 32-byte file key.
     pub key: [u8; 32],
