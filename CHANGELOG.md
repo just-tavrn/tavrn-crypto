@@ -22,7 +22,28 @@ First public release, published to crates.io and npm.
   format 2, sealed to the share key every device derives next to its device key.
 - **Test vectors** of the protocol checked natively and through the WebAssembly package.
 
-### Security
+### Changed
+
+- The MLS client keeps the groups it loaded (OpenMLS writes every change through to the storage, so the exported
+  state stays the same): `has_group`, `current_epoch`, `roster`, `encrypt_content` and `decrypt_content` no longer
+  parse the whole group from the storage on every call (100 members: `has_group` 359 µs → under 1 µs).
+- `decrypt_content` with the attested key of the author device compares it with the device's leaf in the local group
+  itself (`unknown_sender` on a mismatch, ENCRYPTION.md §3.3), so clients need one call per message instead of
+  `hasGroup`, `roster` and `decryptContent`.
+- `encrypt_content_with_epoch` (WebAssembly: `encryptContentWithEpoch`) returns the content with the epoch it was
+  encrypted for; `encryptShare` takes the epoch from the encryption instead of decoding its own output again.
+- `continuity_keys` (WebAssembly: `continuityKeys`): every key that leads to the current one through a continuity
+  chain, verifying each statement at most once (one walk per key verified O(n²) statements).
+- `import_state` loads every group once and refuses a state whose MLS values do not load with `state_malformed`;
+  such a state used to import and then panic (a trap in WebAssembly) on first use of the group.
+- `export_state` writes into a buffer of the exact size (no reallocation leaving partial copies behind).
+- Secrets cross the WebAssembly boundary without plain copies in the module's memory: `importState`, the key inputs
+  and the secret outputs (`exportState`, `toBytes`, `backupKey`, `exportEpochKey`, `exportVoiceKey`, …) go through
+  buffers that are wiped, and a dropped client wipes its MLS storage.
+- `CommitOutput`, `RosterEntry` and `EncryptedFile` copy their bytes once per property read (no clone inside the
+  module first); the ciphertext of `encryptFile` is moved, not cloned and wiped.
+- Whiteboard scene ids must be canonical ULIDs (first character at most `7`), as everywhere else.
+- Redundant weak-key checks before strict Ed25519 verification removed (`verify_strict` refuses small-order keys).
 
 ### Security
 
