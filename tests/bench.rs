@@ -30,10 +30,17 @@ fn bench(n: usize) {
     let kps: Vec<Vec<u8>> = others.iter_mut().map(|c| c.create_key_package().expect("kp")).collect();
     let out = alice.add_members(CONV, &kps).expect("add");
     alice.merge_pending_commit(CONV).expect("merge");
-    let bob = &mut others[0];
-    bob.join_by_welcome(&out.welcome.expect("welcome")).expect("join");
-    let content = alice.encrypt_content(CONV, MSG).expect("encrypt");
-    let d = alice.device();
+    let welcome = out.welcome.expect("welcome");
+    others[0].join_by_welcome(&welcome).expect("join");
+    if n > 2 {
+        others[n - 2].join_by_welcome(&welcome).expect("join");
+    }
+    let (bob, rest) = others.split_first_mut().expect("members");
+    let bob: &Client = bob;
+    // The author is the last leaf (with more than two members): the leaf check of decrypt_content walks the roster.
+    let author_client: &Client = if n > 2 { rest.last().expect("last") } else { &alice };
+    let content = author_client.encrypt_content(CONV, MSG).expect("encrypt");
+    let d = author_client.device();
     let (author, device, key) = (d.user_address().to_owned(), d.device_id().to_owned(), d.public_key());
     let iters = 200;
     let has = time(iters, || assert!(bob.has_group(CONV)));
