@@ -1,0 +1,6 @@
+# Labels of this repository on top of the common set of scripts/github-labels.sh (name|colour|description).
+rust|dea584|Rust crate tavrn-crypto
+wasm|654ff0|WebAssembly build and the npm package @tavrn/crypto
+mls|5319e7|MLS groups, commits, key packages (OpenMLS)
+protocol|fbca04|Needs a change or clarification in tavrn-protocol
+ci|ededed|Workflows and build tooling
