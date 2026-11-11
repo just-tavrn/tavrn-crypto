@@ -27,9 +27,9 @@ Every job carries `if: ${{ vars.CI_ENABLED == 'true' }}`.
 | `PUBLISH_CHECK_PRIVATE` | secret (repository or organization) | comma-separated private domains, hosts and addresses that must never appear in the tree (`Publication hygiene`). Without it the check fails on purpose. Dependabot's pull requests see only Dependabot secrets, so add it there too (`gh secret set PUBLISH_CHECK_PRIVATE --app dependabot`); without it their workflow sets `PUBLISH_CHECK_ALLOW_UNCONFIGURED=1` and only the private-pattern step is skipped, with a warning (the push to `main` runs the full check). Locally the same list lives in an untracked `.publish-check.private` (in the repository or its parent directory). |
 | `TAVRN_READ_PAT` | secret | Private phase only: fine-grained PAT with `contents: read` on `tavrn-protocol`, `tavrn-crypto` and `tavrn-js`, passed to the reusable workflows as `READ_TOKEN` so they can fetch the private `protocol/` submodule. Delete it once the repositories are public. |
 | `PUBLISH_ENABLED` | variable | `true` lets the release workflow publish to crates.io and npm (after the dry runs). Leave unset until the repositories are public and the release train starts. |
-| `CARGO_REGISTRY_TOKEN` | secret of the environment `release` (never a repository secret) | crates.io API token with publish rights for `tavrn-crypto` (only with `PUBLISH_ENABLED`). |
-| `NPM_TOKEN` | secret of the environment `release` | npm automation token with publish rights for the `@tavrn` scope (only with `PUBLISH_ENABLED`). |
-| environment `release` | Settings → Environments | deployment only from tags `v*`, required reviewer the owner; holds the two tokens (`gh secret set <name> --env release`). Only the job `publish` declares it. |
+| `CARGO_REGISTRY_TOKEN` | secret of the environment `release` (never a repository secret) | crates.io API token with publish rights for `tavrn-crypto` (only with `PUBLISH_ENABLED`). crates.io offers trusted publishing as well; switching to it is possible later, but not set up. |
+| npm trusted publisher | npmjs.com → `@tavrn/crypto` → Settings → Trusted publishing | GitHub Actions: repository `just-tavrn/tavrn-crypto`, workflow `release.yml`, environment `release`, allowed action npm publish only. The job `publish` exchanges its OIDC id-token for a short-lived publish token (npm >= 11.5.1, checked by the job) and attaches provenance; no npm token is stored. The former `NPM_TOKEN` secret is no longer used; the owner deletes it after the first successful release through trusted publishing. |
+| environment `release` | Settings → Environments | deployment only from tags `v*`, required reviewer the owner; holds `CARGO_REGISTRY_TOKEN` (`gh secret set CARGO_REGISTRY_TOKEN --env release`). Only the job `publish` declares it. |
 | `CLA_PAT` | organization secret | the CLA bot's token (`contents: write` on `just-tavrn/cla-signatures`). Organization secrets do not reach private repositories on the free plan: until the repository is public, add it as a repository secret as well. |
 
 ## Release process (private phase)
@@ -39,7 +39,9 @@ Every job carries `if: ${{ vars.CI_ENABLED == 'true' }}`.
 toolchain. `v0.1.0` was built locally and committed. A release: bump `Cargo.toml` and `pkg/package.json` on
 `main`, build `pkg/dist` (locally with `./build-wasm.sh`, or by running `release.yml` by hand with the new version
 and downloading its artifact `pkg-dist`), commit it as the release commit, tag it `vX.Y.Z` and push the tag. Only
-organization owners may create `v*` tags, so the workflow no longer pushes one itself. When the packages are published to npm and
+organization owners may create `v*` tags, so the workflow no longer pushes one itself. If `publish` fails after one
+registry took the version, rerun the failed job: a version already on crates.io or npm is skipped (0.1.1 reached only
+crates.io, so npm went from 0.1.0 to 0.1.2). When the packages are published to npm and
 crates.io, `pkg/dist` is removed from `main` (add it back to `.gitignore`) and consumers switch to version
 ranges.
 
