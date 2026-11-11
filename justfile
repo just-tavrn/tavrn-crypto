@@ -6,7 +6,7 @@ default:
     @just --list
 
 # Every check of the CI: licenses, format, lints (native and wasm32), tests, cargo deny, WASM build, JS tests
-check: license-check fmt-check clippy clippy-wasm test deny wasm typecheck test-js
+check: license-check test-scripts fmt-check clippy clippy-wasm test deny wasm typecheck test-js
 
 # SPDX headers and the licenses of the JavaScript dependencies (Rust licenses: `just deny`)
 license-check: js-install
@@ -33,6 +33,10 @@ test: protocol
 # Licenses, advisories, bans and sources of the Rust dependencies (deny.toml)
 deny:
     cargo deny --log-level error check
+
+# Tests of the build scripts (which wasm-bindgen CLI build-wasm.sh selects; stubs, no build)
+test-scripts:
+    scripts/test-build-wasm.sh
 
 # Build the WebAssembly package @tavrn/crypto into pkg/dist (installs the matching wasm-bindgen-cli if needed)
 wasm:

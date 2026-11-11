@@ -1,6 +1,6 @@
 {
   "name": "@tavrn/crypto",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "tavrn end-to-end encryption core (OpenMLS) compiled to WebAssembly",
   "license": "MPL-2.0",
   "repository": {
@@ -36,8 +36,8 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "typescript": "^5.9.3",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   }
 }

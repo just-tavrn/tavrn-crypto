@@ -4,7 +4,37 @@ Changes of `tavrn-crypto` (crates.io) and `@tavrn/crypto` (npm, the same code co
 first. Both carry the same version; the tags of this repository are `vX.Y.Z`. The protocol behind the formats is
 versioned separately in [tavrn-protocol](https://github.com/just-tavrn/tavrn-protocol/blob/main/CHANGELOG.md).
 
-## Unreleased
+## 0.1.1
+
+A maintenance release: dependency updates with upstream security fixes. No API or format changes; the exported
+device state of 0.1.0 imports unchanged.
+
+### Security
+
+- OpenMLS 0.9.2 (from 0.9.1): removed leaves no longer reappear when an external commit truncates and regrows the
+  ratchet tree ([GHSA-94v4-rg25-x625](https://github.com/openmls/openmls/security/advisories/GHSA-94v4-rg25-x625));
+  a rejected private message no longer advances the sender ratchet and blocks later messages from that sender
+  ([GHSA-p276-g3f3-wwgh](https://github.com/openmls/openmls/security/advisories/GHSA-p276-g3f3-wwgh)).
+- ctutils 0.4.8 (from 0.4.3): constant-time mask generation and `u128` comparisons
+  ([RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385)).
+- Known and temporarily excepted: [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387) (timing
+  variability of crypto-bigint 0.5.5, which comes in only through the NIST curves of openmls_rust_crypto 0.6 and
+  hpke-rs-rust-crypto 0.7). Tavrn uses only the MLS ciphersuite 0x0001 (X25519/Ed25519), so these curves only verify
+  public data. No compatible fix is released yet; the exception expires on 2026-12-26
+  ([#24](https://github.com/just-tavrn/tavrn-crypto/issues/24)).
+
+### Changed
+
+- Dependency updates: wasm-bindgen 0.2.130 and js-sys 0.3.107 (the WebAssembly package is rebuilt with them),
+  serde_json 1.0.154, serde_json_canonicalizer 0.4.1, sha2 0.11.1, ml-kem 0.3.4 and further compatible patch
+  releases; the package's development dependencies vitest 5.1.0 and @types/node 26.6.6.
+- With wasm-bindgen 0.2.130 the WebAssembly module passes JavaScript values through an `externref` table (the
+  reference-types feature, which every current browser and Node.js support), and the TypeScript declarations accept
+  `Uint8Array | number[]` for the byte arguments that the generated code copies into the module, as that code already
+  did at run time. The arguments that cross through wiped buffers still take only a `Uint8Array`.
+- The protocol's test vectors at tavrn-protocol `79fd064` (whisper permissions and components).
+
+## 0.1.0
 
 First public release, published to crates.io and npm.
 
