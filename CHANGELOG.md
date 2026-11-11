@@ -4,6 +4,17 @@ Changes of `tavrn-crypto` (crates.io) and `@tavrn/crypto` (npm, the same code co
 first. Both carry the same version; the tags of this repository are `vX.Y.Z`. The protocol behind the formats is
 versioned separately in [tavrn-protocol](https://github.com/just-tavrn/tavrn-protocol/blob/main/CHANGELOG.md).
 
+## 0.1.2
+
+The first npm release after 0.1.0: **0.1.1 exists only on crates.io** (its npm publication failed), so `@tavrn/crypto`
+goes from 0.1.0 directly to 0.1.2. The code is identical to 0.1.1; see the [0.1.1 notes](#011) for the changes since
+0.1.0. Only the release workflow changed:
+
+- npm publishes through trusted publishing (OIDC, with provenance) instead of an npm token; the publish job checks
+  that its npm supports it (11.5.1 or later).
+- A rerun of the publish job skips a version that is already on crates.io or npm, so a partial publication can be
+  completed.
+
 ## 0.1.1
 
 A maintenance release: dependency updates with upstream security fixes. No API or format changes; the exported
@@ -33,6 +44,8 @@ device state of 0.1.0 imports unchanged.
   `Uint8Array | number[]` for the byte arguments that the generated code copies into the module, as that code already
   did at run time. The arguments that cross through wiped buffers still take only a `Uint8Array`.
 - The protocol's test vectors at tavrn-protocol `79fd064` (whisper permissions and components).
+- `build-wasm.sh` calls the wasm-bindgen CLI of the version in Cargo.lock by its path (a stale `wasm-bindgen` earlier
+  on `PATH` is never used) and installs it into `$RUNNER_TEMP/tools` in GitHub Actions; the built package is the same.
 
 ## 0.1.0
 

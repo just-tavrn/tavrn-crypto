@@ -1,6 +1,6 @@
 {
   "name": "@tavrn/crypto",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "tavrn end-to-end encryption core (OpenMLS) compiled to WebAssembly",
   "license": "MPL-2.0",
   "repository": {
