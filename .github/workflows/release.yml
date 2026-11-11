@@ -4,11 +4,16 @@
 # - Push a tag vX.Y.Z whose commit carries the built pkg/dist (only organization owners may create v* tags): `build`
 #   tests the committed package, packs the .crate and the npm tarball and runs the publication dry runs, without any
 #   publishing credential; `release` attaches both to a GitHub release; `publish` (environment `release`: tags v*, the
-#   owner's approval; repository variable PUBLISH_ENABLED; secrets CARGO_REGISTRY_TOKEN and NPM_TOKEN of the
-#   environment) publishes them. `publish` installs nothing and runs no code of the repository: npm publishes the
-#   tarball of `build` after comparing it with `npm pack --ignore-scripts` of the tag, and `cargo publish --no-verify`
-#   uploads the crate packaged from the tag after checking that it is the crate `build` tested (no build script or
-#   macro runs).
+#   owner's approval; repository variable PUBLISH_ENABLED) publishes them. `publish` installs nothing and runs no code
+#   of the repository: npm publishes the tarball of `build` after comparing it with `npm pack --ignore-scripts` of the
+#   tag, and `cargo publish --no-verify` uploads the crate packaged from the tag after checking that it is the crate
+#   `build` tested (no build script or macro runs).
+# - Credentials: crates.io takes the secret CARGO_REGISTRY_TOKEN of the environment `release`; npm uses trusted
+#   publishing (OIDC, no token): the trusted publisher of @tavrn/crypto on npmjs.com is this repository, workflow
+#   release.yml, environment `release`, allowed action npm publish only. npm >= 11.5.1 exchanges the job's id-token
+#   for a short-lived publish token and attaches provenance.
+# - Rerunning the failed `publish` job after a partial publication is safe: a version that is already on crates.io
+#   or npm is skipped (neither registry accepts a version twice).
 # - Run the workflow by hand with a version to prepare a release: it builds pkg/dist from main, tests it and uploads
 #   it as the artifact pkg-dist; commit it, tag the commit and push the tag (a workflow token cannot create v* tags).
 # Gated by CI_ENABLED.
@@ -149,10 +154,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # No registry-url: it would write an .npmrc with `_authToken=${NODE_AUTH_TOKEN}`, which npm keeps as a literal
+      # token when the variable is unset. Trusted publishing needs no token; npmjs.org is npm's default registry.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
+      - name: npm supports trusted publishing
+        run: |
+          # Trusted publishing (the OIDC token exchange) needs npm 11.5.1 or later; this job installs nothing.
+          v=$(npm --version)
+          if ! node -e '
+            const [a, b, c] = process.argv[1].split(".").map((n) => parseInt(n, 10));
+            process.exit(a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1))) ? 0 : 1);
+          ' "$v"; then
+            echo "npm $v of Node.js $(node --version) cannot use trusted publishing (needs npm >= 11.5.1)." >&2
+            echo "Use a Node.js release that bundles a newer npm in actions/setup-node." >&2
+            exit 1
+          fi
+          echo "npm $v"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-packages
@@ -182,9 +201,31 @@ jobs:
       - name: Publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ needs.build.outputs.version }}
           RELEASE_DIR: ${{ runner.temp }}/release
         run: |
-          cargo publish --no-verify --locked
-          npm publish "$RELEASE_DIR"/tavrn-crypto-"$VERSION".tgz --provenance --access public
+          # published URL: whether the registry has exactly $VERSION at URL (the version's own document, whose
+          # version field must equal $VERSION): 0 yes, 1 no (HTTP 404), anything else stops the job.
+          published() {
+            local body="$RUNNER_TEMP/registry.json" code
+            code=$(curl -sS -o "$body" -w '%{http_code}' -A "tavrn-crypto release ($GITHUB_REPOSITORY)" "$1")
+            case "$code" in
+              200) node -e '
+                     const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+                     const v = d.version?.num ?? d.version;
+                     if (v !== process.argv[2]) { console.error(`unexpected version ${v} in ${process.argv[3]}`); process.exit(2); }
+                   ' "$body" "$VERSION" "$1" || exit 1 ;;
+              404) return 1 ;;
+              *) echo "$1: HTTP $code" >&2; exit 1 ;;
+            esac
+          }
+          if published "https://crates.io/api/v1/crates/tavrn-crypto/$VERSION"; then
+            echo "tavrn-crypto $VERSION is already on crates.io: skipped"
+          else
+            cargo publish --no-verify --locked
+          fi
+          if published "https://registry.npmjs.org/@tavrn%2fcrypto/$VERSION"; then
+            echo "@tavrn/crypto $VERSION is already on npm: skipped"
+          else
+            npm publish "$RELEASE_DIR"/tavrn-crypto-"$VERSION".tgz --provenance --access public
+          fi
