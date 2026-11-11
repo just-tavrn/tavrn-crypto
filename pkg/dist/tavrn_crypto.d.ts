@@ -24,7 +24,7 @@ export class Client {
      * whenever it is known: a leaf of the device in the local group with another key then fails with
      * `unknown_sender`. Without it the key of the device's leaf is used.
      */
-    decryptContent(conversation: string, author: string, device_id: string, content: string, device_public_key?: Uint8Array | null): string;
+    decryptContent(conversation: string, author: string, device_id: string, content: string, device_public_key?: Uint8Array | number[] | null): string;
     deleteGroup(conversation: string): void;
     discardPendingCommit(conversation: string): void;
     /**
@@ -59,7 +59,7 @@ export class Client {
     /**
      * Imports a history backup; returns the number of epoch keys in it.
      */
-    importBackup(conversation: string, backup_key: Uint8Array, blob: Uint8Array): number;
+    importBackup(conversation: string, backup_key: Uint8Array, blob: Uint8Array | number[]): number;
     importEpochKey(conversation: string, epoch: number, key: Uint8Array): void;
     /**
      * Restores a client from `exportState()` bytes (wipe them afterwards). Every group is loaded once:
@@ -70,19 +70,19 @@ export class Client {
      * The inbox public key of `epoch` with this device's signature (needs the epoch's content key).
      */
     inboxKey(conversation: string, epoch: number): InboxKey;
-    joinByExternalCommit(conversation: string, group_info: Uint8Array): CommitOutput;
-    joinByWelcome(welcome: Uint8Array): WelcomeJoin;
+    joinByExternalCommit(conversation: string, group_info: Uint8Array | number[]): CommitOutput;
+    joinByWelcome(welcome: Uint8Array | number[]): WelcomeJoin;
     knownEpochs(conversation: string): Float64Array;
     mergePendingCommit(conversation: string): number;
     /**
      * Opens a sealed webhook message of `epoch`; returns the inner JSON (`unknown_epoch` without the key).
      */
-    openSealed(conversation: string, epoch: number, sealed: Uint8Array): string;
+    openSealed(conversation: string, epoch: number, sealed: Uint8Array | number[]): string;
     /**
      * Opens a sealed share key addressed to this device; returns the 32-byte key (`decryption_failed` otherwise).
      */
-    openShareBox(sealed: Uint8Array): Uint8Array;
-    processHandshake(conversation: string, message: Uint8Array): HandshakeOutcome;
+    openShareBox(sealed: Uint8Array | number[]): Uint8Array;
+    processHandshake(conversation: string, message: Uint8Array | number[]): HandshakeOutcome;
     /**
      * Removes leaves by identity and signature key (`identities[i]` with `signatureKeys[i]`): exactly that leaf,
      * also when another leaf names the same device.
@@ -192,7 +192,7 @@ export class IdentityKey {
     /**
      * Signs a device public key with this identity key; returns the 64-byte signature.
      */
-    attestDevice(user_address: string, device_id: string, device_public_key: Uint8Array): Uint8Array;
+    attestDevice(user_address: string, device_id: string, device_public_key: Uint8Array | number[]): Uint8Array;
     /**
      * From the 32-byte seed (local secure storage only).
      */
@@ -222,8 +222,10 @@ export class InboxKey {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
-    publicKey: Uint8Array;
-    signature: Uint8Array;
+    get publicKey(): Uint8Array;
+    set publicKey(value: Uint8Array | number[]);
+    get signature(): Uint8Array;
+    set signature(value: Uint8Array | number[]);
 }
 
 /**
@@ -236,7 +238,7 @@ export class MasterSecret {
     /**
      * Signs a device public key with the identity key; returns the 64-byte signature.
      */
-    attestDevice(user_address: string, device_id: string, device_public_key: Uint8Array): Uint8Array;
+    attestDevice(user_address: string, device_id: string, device_public_key: Uint8Array | number[]): Uint8Array;
     /**
      * AES-256 backup key (32 bytes) for history backups.
      */
@@ -322,8 +324,10 @@ export class ShareKey {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
-    publicKey: Uint8Array;
-    signature: Uint8Array;
+    get publicKey(): Uint8Array;
+    set publicKey(value: Uint8Array | number[]);
+    get signature(): Uint8Array;
+    set signature(value: Uint8Array | number[]);
 }
 
 /**
@@ -380,17 +384,17 @@ export function continuityReaches(chain_json: string, from: string, to: string):
  * Decrypts content format 1 under an explicit key (a history share v2 under the key from its box) and verifies the
  * device signature; nothing is stored.
  */
-export function decryptContentWithKey(key: Uint8Array, conversation: string, author: string, device_id: string, content: string, device_public_key: Uint8Array): string;
+export function decryptContentWithKey(key: Uint8Array, conversation: string, author: string, device_id: string, content: string, device_public_key: Uint8Array | number[]): string;
 
 /**
  * Checks the ciphertext hash and decrypts an attachment.
  */
-export function decryptFile(ciphertext: Uint8Array, key: Uint8Array, nonce: Uint8Array, sha256: Uint8Array): Uint8Array;
+export function decryptFile(ciphertext: Uint8Array | number[], key: Uint8Array, nonce: Uint8Array | number[], sha256: Uint8Array | number[]): Uint8Array;
 
 /**
  * Decrypts one part of a whiteboard scene.
  */
-export function decryptScene(backup_key: Uint8Array, scene_id: string, part: string, blob: Uint8Array): Uint8Array;
+export function decryptScene(backup_key: Uint8Array, scene_id: string, part: string, blob: Uint8Array | number[]): Uint8Array;
 
 /**
  * The share secret key a device derives from its device secret (ENCRYPTION.md §3.1; test vectors and tools, clients
@@ -401,24 +405,24 @@ export function deviceShareSecretKey(device_secret_key: Uint8Array): Uint8Array;
 /**
  * Encrypts a file with a fresh random key (AES-256-GCM, one shot).
  */
-export function encryptFile(plaintext: Uint8Array): EncryptedFile;
+export function encryptFile(plaintext: Uint8Array | number[]): EncryptedFile;
 
 /**
  * Encrypts one part (`"scene"` or `"thumbnail"`) of a whiteboard scene under the backup key
  * (`protocol/WHITEBOARD.md` §5).
  */
-export function encryptScene(backup_key: Uint8Array, scene_id: string, part: string, plaintext: Uint8Array): Uint8Array;
+export function encryptScene(backup_key: Uint8Array, scene_id: string, part: string, plaintext: Uint8Array | number[]): Uint8Array;
 
 /**
  * Inbox public key of write-only webhooks for the epoch whose content key is `content_key` (ENCRYPTION.md §5b;
  * test vectors and tools, clients use `Client.inboxKey`).
  */
-export function inboxPublicKey(content_key: Uint8Array): Uint8Array;
+export function inboxPublicKey(content_key: Uint8Array | number[]): Uint8Array;
 
 /**
  * Opens a sealed share key with a raw share secret key (test vectors and tools; clients use `Client.openShareBox`).
  */
-export function openShareBox(share_secret_key: Uint8Array, sealed: Uint8Array): Uint8Array;
+export function openShareBox(share_secret_key: Uint8Array, sealed: Uint8Array | number[]): Uint8Array;
 
 /**
  * Parses a QR payload strictly (throws `invalid_input` for anything malformed).
@@ -438,17 +442,17 @@ export function passkeyWrappingKey(prf_output: Uint8Array): Uint8Array;
 /**
  * Safety number of two users (60 digits; display as 12 groups of 5). Argument order is irrelevant.
  */
-export function safetyNumber(address_a: string, key_a: Uint8Array, address_b: string, key_b: Uint8Array): string;
+export function safetyNumber(address_a: string, key_a: Uint8Array | number[], address_b: string, key_b: Uint8Array | number[]): string;
 
 /**
  * Seals the fresh key of a history share v2 to one recipient device's share public key (ENCRYPTION.md §7b).
  */
-export function sealShareKey(share_public_key: Uint8Array, key: Uint8Array): Uint8Array;
+export function sealShareKey(share_public_key: Uint8Array | number[], key: Uint8Array | number[]): Uint8Array;
 
 /**
  * libsodium `crypto_box_seal` to an inbox public key: what a webhook sender does (ENCRYPTION.md §5b).
  */
-export function sealToInbox(public_key: Uint8Array, plaintext: Uint8Array): Uint8Array;
+export function sealToInbox(public_key: Uint8Array | number[], plaintext: Uint8Array | number[]): Uint8Array;
 
 /**
  * The input to pass as `extensions.prf.eval.first` in every WebAuthn ceremony.
@@ -469,12 +473,12 @@ export function signContinuity(old: IdentityKey, _new: IdentityKey, at: string):
 /**
  * Unwraps an `identity_blob`; the caller checks the public key against the published one.
  */
-export function unwrapIdentityKey(master: MasterSecret, blob: Uint8Array, user_address: string): IdentityKey;
+export function unwrapIdentityKey(master: MasterSecret, blob: Uint8Array | number[], user_address: string): IdentityKey;
 
 /**
  * Unwraps a secret storage entry fetched from the home node.
  */
-export function unwrapMasterSecret(wrapped: Uint8Array, wrapping_key: Uint8Array, user_address: string, method: string): MasterSecret;
+export function unwrapMasterSecret(wrapped: Uint8Array | number[], wrapping_key: Uint8Array, user_address: string, method: string): MasterSecret;
 
 /**
  * Checks both signatures of one statement (JSON); false for anything malformed.
@@ -484,24 +488,24 @@ export function verifyContinuity(statement_json: string): boolean;
 /**
  * Checks an identity signature over a device key against the trusted (pinned) identity key.
  */
-export function verifyDeviceAttestation(user_address: string, device_id: string, device_public_key: Uint8Array, signature: Uint8Array, trusted_identity_key: Uint8Array): boolean;
+export function verifyDeviceAttestation(user_address: string, device_id: string, device_public_key: Uint8Array | number[], signature: Uint8Array | number[], trusted_identity_key: Uint8Array | number[]): boolean;
 
 /**
  * Checks a device's published share key against its (verified) device key (ENCRYPTION.md §3.1): clients seal
  * nothing to a share key whose signature does not verify.
  */
-export function verifyDeviceShareKey(device_id: string, device_public_key: Uint8Array, share_public_key: Uint8Array, signature: Uint8Array): boolean;
+export function verifyDeviceShareKey(device_id: string, device_public_key: Uint8Array | number[], share_public_key: Uint8Array | number[], signature: Uint8Array | number[]): boolean;
 
 /**
  * QR payload `tavrn:verify?v=1&a=…&ka=…&b=…&kb=…` of two users.
  */
-export function verifyPayload(address_a: string, key_a: Uint8Array, address_b: string, key_b: Uint8Array): string;
+export function verifyPayload(address_a: string, key_a: Uint8Array | number[], address_b: string, key_b: Uint8Array | number[]): string;
 
 /**
  * True if the payload names exactly the own address with the own key and the contact with the
  * pinned key (FEDERATION.md §10.1).
  */
-export function verifyPayloadMatches(text: string, own_address: string, own_key: Uint8Array, contact_address: string, contact_key: Uint8Array): boolean;
+export function verifyPayloadMatches(text: string, own_address: string, own_key: Uint8Array | number[], contact_address: string, contact_key: Uint8Array | number[]): boolean;
 
 /**
  * Verifies the `signature` of a plaintext message. `fieldsJson` holds the envelope fields
@@ -509,7 +513,7 @@ export function verifyPayloadMatches(text: string, own_address: string, own_key:
  * `attachments`), `contentJcs` the content object in RFC 8785 form (checked against this
  * implementation). Returns false for a wrong signature; throws for malformed input.
  */
-export function verifyPlaintext(fields_json: string, content_jcs: string, signature: string, device_public_key: Uint8Array): boolean;
+export function verifyPlaintext(fields_json: string, content_jcs: string, signature: string, device_public_key: Uint8Array | number[]): boolean;
 
 /**
  * Wraps a rotated identity key for the home node (`identity_blob`, 61 bytes).
@@ -599,15 +603,15 @@ export interface InitOutput {
     readonly client_encryptContent: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly client_encryptContentWithEpoch: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly client_encryptShare: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
-    readonly client_exportBackup: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly client_exportBackup: (a: number, b: number, c: number, d: number, e: any) => void;
     readonly client_exportEpochKey: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly client_exportState: (a: number, b: number) => void;
     readonly client_exportVoiceKey: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly client_hasGroup: (a: number, b: number, c: number) => number;
     readonly client_identity: (a: number, b: number) => void;
-    readonly client_importBackup: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly client_importEpochKey: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
-    readonly client_importState: (a: number, b: number) => void;
+    readonly client_importBackup: (a: number, b: number, c: number, d: number, e: any, f: number, g: number) => void;
+    readonly client_importEpochKey: (a: number, b: number, c: number, d: number, e: number, f: any) => void;
+    readonly client_importState: (a: number, b: any) => void;
     readonly client_inboxKey: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly client_joinByExternalCommit: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly client_joinByWelcome: (a: number, b: number, c: number, d: number) => void;
@@ -624,59 +628,59 @@ export interface InitOutput {
     readonly client_signDeviceLogin: (a: number, b: number, c: number, d: number) => void;
     readonly client_signPlaintext: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly client_userAddress: (a: number, b: number) => void;
-    readonly commitoutput_commit: (a: number) => number;
+    readonly commitoutput_commit: (a: number) => any;
     readonly commitoutput_epoch: (a: number) => number;
-    readonly commitoutput_groupInfo: (a: number) => number;
-    readonly commitoutput_welcome: (a: number) => number;
+    readonly commitoutput_groupInfo: (a: number) => any;
+    readonly commitoutput_welcome: (a: number) => any;
     readonly contentEpoch: (a: number, b: number, c: number) => void;
     readonly continuityKeys: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly continuityReaches: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
-    readonly decryptContentWithKey: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => void;
-    readonly decryptFile: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
-    readonly decryptScene: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
-    readonly deviceShareSecretKey: (a: number, b: number) => void;
+    readonly decryptContentWithKey: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => void;
+    readonly decryptFile: (a: number, b: number, c: number, d: any, e: number, f: number, g: number, h: number) => void;
+    readonly decryptScene: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number) => void;
+    readonly deviceShareSecretKey: (a: number, b: any) => void;
     readonly encryptFile: (a: number, b: number, c: number) => void;
-    readonly encryptScene: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
-    readonly encryptedfile_ciphertext: (a: number) => number;
-    readonly encryptedfile_key: (a: number) => number;
-    readonly encryptedfile_nonce: (a: number) => number;
-    readonly encryptedfile_sha256: (a: number) => number;
+    readonly encryptScene: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number) => void;
+    readonly encryptedfile_ciphertext: (a: number) => any;
+    readonly encryptedfile_key: (a: number) => any;
+    readonly encryptedfile_nonce: (a: number) => any;
+    readonly encryptedfile_sha256: (a: number) => any;
     readonly identitykey_attestDevice: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
-    readonly identitykey_fromBytes: (a: number, b: number) => void;
+    readonly identitykey_fromBytes: (a: number, b: any) => void;
     readonly identitykey_fromMaster: (a: number) => number;
     readonly identitykey_generate: (a: number) => void;
     readonly identitykey_publicKey: (a: number, b: number) => void;
-    readonly identitykey_toBytes: (a: number) => number;
+    readonly identitykey_toBytes: (a: number) => any;
     readonly inboxPublicKey: (a: number, b: number, c: number) => void;
     readonly mastersecret_attestDevice: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
-    readonly mastersecret_backupKey: (a: number) => number;
-    readonly mastersecret_fromBytes: (a: number, b: number) => void;
+    readonly mastersecret_backupKey: (a: number) => any;
+    readonly mastersecret_fromBytes: (a: number, b: any) => void;
     readonly mastersecret_fromKeyFile: (a: number, b: number, c: number) => void;
     readonly mastersecret_generate: (a: number) => void;
     readonly mastersecret_identityPublicKey: (a: number, b: number) => void;
     readonly mastersecret_localStorageKey: (a: number, b: number, c: number, d: number) => void;
-    readonly mastersecret_toBytes: (a: number) => number;
+    readonly mastersecret_toBytes: (a: number) => any;
     readonly mastersecret_toKeyFile: (a: number, b: number, c: number, d: number) => void;
-    readonly openShareBox: (a: number, b: number, c: number, d: number) => void;
+    readonly openShareBox: (a: number, b: any, c: number, d: number) => void;
     readonly parseVerifyPayload: (a: number, b: number, c: number) => void;
     readonly passkeyMethod: (a: number, b: number, c: number) => void;
-    readonly passkeyWrappingKey: (a: number, b: number) => void;
+    readonly passkeyWrappingKey: (a: number, b: any) => void;
     readonly recoverykey_fromText: (a: number, b: number, c: number) => void;
     readonly recoverykey_generate: (a: number) => void;
     readonly recoverykey_toCompact: (a: number, b: number) => void;
     readonly recoverykey_toText: (a: number, b: number, c: number, d: number) => void;
     readonly recoverykey_toWords: (a: number, b: number) => void;
-    readonly recoverykey_wrappingKey: (a: number) => number;
+    readonly recoverykey_wrappingKey: (a: number) => any;
     readonly rosterentry_identity: (a: number, b: number) => void;
-    readonly rosterentry_signatureKey: (a: number) => number;
+    readonly rosterentry_signatureKey: (a: number) => any;
     readonly safetyNumber: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
     readonly sealShareKey: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly sealToInbox: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly secretStoragePrfInput: (a: number) => void;
-    readonly sharePublicKey: (a: number, b: number) => void;
+    readonly sharePublicKey: (a: number, b: any) => void;
     readonly signContinuity: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly unwrapIdentityKey: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
-    readonly unwrapMasterSecret: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
+    readonly unwrapMasterSecret: (a: number, b: number, c: number, d: any, e: number, f: number, g: number, h: number) => void;
     readonly verifyContinuity: (a: number, b: number) => number;
     readonly verifyDeviceAttestation: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => number;
     readonly verifyDeviceShareKey: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
@@ -684,12 +688,17 @@ export interface InitOutput {
     readonly verifyPayloadMatches: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => number;
     readonly verifyPlaintext: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
     readonly wrapIdentityKey: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly wrapMasterSecret: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly wrapMasterSecret: (a: number, b: number, c: any, d: number, e: number, f: number, g: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
-    readonly __wbindgen_export3: (a: number) => void;
+    readonly __wbindgen_export3: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_export4: (a: number) => void;
+    readonly __wbindgen_export5: () => number;
+    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
-    readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_export6: (a: number) => void;
+    readonly __wbindgen_export7: (a: number, b: number) => void;
+    readonly __wbindgen_start: () => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;
