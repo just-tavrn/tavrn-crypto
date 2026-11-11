@@ -3,7 +3,8 @@
 #
 # Tests how build-wasm.sh picks the wasm-bindgen CLI, with stubs instead of the real cargo and wasm-bindgen:
 # a stale wasm-bindgen earlier on PATH (as /usr/local/bin in the CI runner image) must not be used once the
-# version of Cargo.lock is installed, and an install that still gives another version must fail.
+# version of Cargo.lock is installed, an install that still gives another version must fail, and in GitHub Actions
+# (RUNNER_TEMP set) the CLI goes to the job's own $RUNNER_TEMP/tools, never into the shared CARGO_HOME.
 # Usage: scripts/test-build-wasm.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -55,7 +56,7 @@ log="$tmp/log"
 run() {
   : >"$log"
   status=0
-  out=$(env "$@" CARGO_HOME="$tmp/home" STUB_LOG="$log" PATH="$tmp/stale:$tmp/fake:$PATH" \
+  out=$(env -u RUNNER_TEMP -u WASM_BINDGEN_ROOT "$@" CARGO_HOME="$tmp/home" STUB_LOG="$log" PATH="$tmp/stale:$tmp/fake:$PATH" \
     ./build-wasm.sh --install-only 2>"$tmp/err") || status=$?
 }
 
@@ -98,6 +99,32 @@ stub_bindgen "$tmp/stale" "$stale"
 run STUB_INSTALL_VERSION=0.0.1
 check "wrong version after install: fails" '[ "$status" -ne 0 ]'
 check "wrong version after install: says so" 'grep -q "0.0.1" "$tmp/err" && grep -q "$want" "$tmp/err"'
+
+# 5. GitHub Actions: installed into $RUNNER_TEMP/tools (CARGO_HOME/bin is shared and emptied by other runners).
+fresh
+rm -rf "$tmp/runner"
+stub_bindgen "$tmp/stale" "$stale"
+run RUNNER_TEMP="$tmp/runner"
+check "RUNNER_TEMP set: exit 0" '[ "$status" -eq 0 ]'
+check "RUNNER_TEMP set: the CLI in \$RUNNER_TEMP/tools is selected" '[ "$out" = "$tmp/runner/tools/bin/wasm-bindgen" ]'
+check "RUNNER_TEMP set: installed with --root \$RUNNER_TEMP/tools" \
+  'grep -q -- "--root $tmp/runner/tools" "$log" && [ "$("$tmp/runner/tools/bin/wasm-bindgen" --version)" = "wasm-bindgen $want" ]'
+check "RUNNER_TEMP set: nothing installed into CARGO_HOME" '[ ! -e "$tmp/home/bin/wasm-bindgen" ]'
+
+# 6. RUNNER_TEMP set and a matching CLI in CARGO_HOME/bin: not used (another runner may delete it), installed anew.
+fresh
+rm -rf "$tmp/runner"
+stub_bindgen "$tmp/stale" "$stale"
+stub_bindgen "$tmp/home/bin" "$want"
+run RUNNER_TEMP="$tmp/runner"
+check "RUNNER_TEMP set, CLI in CARGO_HOME: \$RUNNER_TEMP/tools selected" \
+  '[ "$status" -eq 0 ] && [ "$out" = "$tmp/runner/tools/bin/wasm-bindgen" ]'
+
+# 7. WASM_BINDGEN_ROOT chooses the install root explicitly.
+fresh
+stub_bindgen "$tmp/stale" "$stale"
+run RUNNER_TEMP="$tmp/runner" WASM_BINDGEN_ROOT="$tmp/root"
+check "WASM_BINDGEN_ROOT: selected" '[ "$status" -eq 0 ] && [ "$out" = "$tmp/root/bin/wasm-bindgen" ]'
 
 if [ "$failures" -gt 0 ]; then
   echo "test-build-wasm: $failures failed" >&2

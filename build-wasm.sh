@@ -2,9 +2,13 @@
 # SPDX-License-Identifier: MPL-2.0
 #
 # Builds the WebAssembly package @tavrn/crypto into pkg/dist (wasm-bindgen, target "web").
-# Installs the wasm-bindgen CLI in the exact version of the wasm-bindgen crate in Cargo.lock into $CARGO_HOME/bin
-# and calls it by that path: a wasm-bindgen of another version earlier on PATH (the CI runner image ships one in
-# /usr/local/bin) is never used. Honors CARGO_TARGET_DIR (default: target/ in the repository).
+# Installs the wasm-bindgen CLI in the exact version of the wasm-bindgen crate in Cargo.lock and calls it by its
+# path: a wasm-bindgen of another version earlier on PATH (the CI runner image ships one in /usr/local/bin) is never
+# used. The install root is $WASM_BINDGEN_ROOT if set, else $RUNNER_TEMP/tools in GitHub Actions, else $CARGO_HOME.
+# In Actions the CLI must not go into $CARGO_HOME/bin: on the self-hosted runners that is /cache/cargo/bin, shared by
+# all runners and emptied at every runner start, so another runner can delete it during the build; their contract is
+# to install into $RUNNER_TEMP and call the tool by path (just-tavrn/.github runner/README.md, "Caches").
+# Honors CARGO_TARGET_DIR (default: target/ in the repository).
 # Usage: ./build-wasm.sh [--install-only]   (--install-only prints the path of the selected CLI)
 # Tested by scripts/test-build-wasm.sh.
 set -euo pipefail
@@ -16,6 +20,8 @@ if [ -z "$version" ]; then
   exit 1
 fi
 cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+tools_root="${WASM_BINDGEN_ROOT:-${RUNNER_TEMP:+$RUNNER_TEMP/tools}}"
+tools_root="${tools_root:-$cargo_home}"
 
 # The version a wasm-bindgen binary reports ("wasm-bindgen 0.2.130 (...)"), empty if it does not run.
 bindgen_version() {
@@ -23,13 +29,16 @@ bindgen_version() {
   "$1" --version 2>/dev/null | cut -d' ' -f2 || true
 }
 
-# The one on PATH if it has the right version, else the one in $CARGO_HOME/bin, installed there if needed.
-wasm_bindgen=$(command -v wasm-bindgen 2>/dev/null || true)
-if [ -z "$wasm_bindgen" ] || [ "$(bindgen_version "$wasm_bindgen")" != "$version" ]; then
-  wasm_bindgen="$cargo_home/bin/wasm-bindgen"
-  if [ "$(bindgen_version "$wasm_bindgen")" != "$version" ]; then
-    echo "Installing wasm-bindgen-cli $version into $cargo_home" >&2
-    cargo install wasm-bindgen-cli --version "$version" --locked --root "$cargo_home"
+# The one in the install root if it has the right version, else the one on PATH if it has, else installed into
+# the install root.
+wasm_bindgen="$tools_root/bin/wasm-bindgen"
+if [ "$(bindgen_version "$wasm_bindgen")" != "$version" ]; then
+  on_path=$(command -v wasm-bindgen 2>/dev/null || true)
+  if [ -n "$on_path" ] && [ "$(bindgen_version "$on_path")" = "$version" ]; then
+    wasm_bindgen=$on_path
+  else
+    echo "Installing wasm-bindgen-cli $version into $tools_root" >&2
+    cargo install wasm-bindgen-cli --version "$version" --locked --root "$tools_root"
   fi
   installed=$(bindgen_version "$wasm_bindgen")
   if [ "$installed" != "$version" ]; then
